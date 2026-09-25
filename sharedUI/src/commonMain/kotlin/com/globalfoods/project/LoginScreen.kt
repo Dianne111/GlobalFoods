@@ -24,9 +24,11 @@ import org.jetbrains.compose.resources.painterResource
 import globalfoods.sharedui.generated.resources.Res
 import globalfoods.sharedui.generated.resources.global_foods_logo
 
-
 @Composable
-fun LoginScreen() {
+fun LoginScreen(
+    onNavigateToRegister: () -> Unit,
+    onLoginSuccess: () -> Unit
+) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
@@ -98,7 +100,7 @@ fun LoginScreen() {
                     Spacer(modifier = Modifier.height(24.dp))
 
                     Button(
-                        onClick = { /* Lógica de iniciar sesión */ },
+                        onClick = { onLoginSuccess() },
                         colors = ButtonDefaults.buttonColors(containerColor = darkBlue),
                         modifier = Modifier.fillMaxWidth().height(50.dp)
                     ) {
@@ -116,7 +118,7 @@ fun LoginScreen() {
                         )
                     }
 
-                    TextButton(onClick = { /* Lógica para registro */ }) {
+                    TextButton(onClick = { onNavigateToRegister() }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "¿Nuevo usuario? ",
