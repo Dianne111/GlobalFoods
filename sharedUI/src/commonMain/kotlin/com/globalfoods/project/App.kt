@@ -10,25 +10,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.delay
 
-private enum class AppScreen {
-    Splash,
-    Login,
-    Register,
-    Home
+private sealed interface AppScreen {
+    data object Splash : AppScreen
+    data object Login : AppScreen
+    data object Register : AppScreen
+    data object Home : AppScreen
+    data class OrderDetail(val orderId: String) : AppScreen
 }
 
 @Composable
 @Preview
 fun App() {
     MaterialTheme {
-        var currentScreen by remember { mutableStateOf(AppScreen.Splash) }
+        var currentScreen: AppScreen by remember { mutableStateOf(AppScreen.Splash) }
 
         LaunchedEffect(Unit) {
             delay(1800)
             currentScreen = AppScreen.Login
         }
 
-        when (currentScreen) {
+        val screen = currentScreen
+        when (screen) {
             AppScreen.Splash -> SplashScreen()
             AppScreen.Login -> {
                 LoginScreen(
@@ -45,7 +47,17 @@ fun App() {
                 )
             }
             AppScreen.Home -> {
-                DashboardScreen()
+                DashboardScreen(
+                    onOrderSelected = { orderId ->
+                        currentScreen = AppScreen.OrderDetail(orderId)
+                    }
+                )
+            }
+            is AppScreen.OrderDetail -> {
+                OrderDetailScreen(
+                    orderId = screen.orderId,
+                    onBack = { currentScreen = AppScreen.Home }
+                )
             }
         }
     }

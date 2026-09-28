@@ -118,21 +118,7 @@ fun LoginScreen(
                         )
                     }
 
-                    TextButton(onClick = { onNavigateToRegister() }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "¿Nuevo usuario? ",
-                                color = Color.Gray,
-                                fontSize = 13.sp
-                            )
-                            Text(
-                                text = "Regístrate aquí.",
-                                color = darkBlue,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+
                 }
             }
         }

@@ -1,30 +1,34 @@
 package com.globalfoods.project
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BarChart
-import androidx.compose.material.icons.outlined.Business
-import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.People
-import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -36,35 +40,32 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import globalfoods.sharedui.generated.resources.Res
+import globalfoods.sharedui.generated.resources.global_foods_logo
+import org.jetbrains.compose.resources.painterResource
 
-private val DashboardNavy = Color(0xFF123B56)
-private val DashboardBackground = Color(0xFFF1F6F9)
-private val AccentGreen = Color(0xFF10B981)
-private val MutedText = Color(0xFF718096)
+internal val Navy = Color(0xFF143D58)
+internal val Background = Color(0xFFF1F8FA)
+internal val Green = Color(0xFF0DB982)
+internal val Gray = Color(0xFF64748B)
 private val CardShape = RoundedCornerShape(12.dp)
-private val ProductImageBackground = Color(0xFFF4F7F8)
-private val StockBackground = Color(0xFFE2F8EF)
-private val NavigationItems = listOf(
-    "INICIO" to Icons.Outlined.Business,
-    "PEDIDOS" to Icons.Outlined.ReceiptLong,
-    "CLIENTES" to Icons.Outlined.People,
-    "REPORTES" to Icons.Outlined.BarChart
-)
+internal val DashboardHorizontalPadding = 16.dp
+internal val DashboardHeaderHeight = 123.dp
+private val InventoryHeaderColor = Color(0xFFF8FAFC)
+private val InventoryRows = List(7) {
+    InventoryRow(size = "41/50", price = "$280", master = "20", stock = "45")
+}
+private val InventoryHeaders = listOf("TALLA", "PRECIO", "MASTER", "STOCK")
 
-private data class Product(
-    val name: String,
-    val weight: String,
-    val stock: String,
-    val price: String
-)
-
-private data class RecentOrder(
+internal data class Order(
     val number: String,
     val client: String,
     val total: String,
@@ -72,207 +73,310 @@ private data class RecentOrder(
     val status: String,
     val statusColor: Color,
     val elapsed: String,
-    val accentColor: Color
+    val accent: Color,
+    val totalKg: String,
+    val products: List<OrderProduct>
 )
 
-private val Products = listOf(
-    Product("Camarón Sin Cabeza", "21/25 kg", "45 kg", "$280/kg"),
-    Product("Camarón Pelado", "41/50 kg", "15 kg", "$280/kg")
+internal data class OrderProduct(
+    val size: String,
+    val price: String,
+    val quantity: String,
+    val subtotal: String
 )
 
-private val RecentOrders = listOf(
-    RecentOrder("#12345", "Victoria Ontiveros", "$560", "2 Items", "PENDIENTE", Color(0xFFFFB020), "hace 5 min", Color(0xFFFFA000)),
-    RecentOrder("#12346", "Restaurante Mar y Tierra", "$1,450", "5 Items", "EN PREPARACIÓN", Color(0xFF3B82F6), "hace 20 min", Color(0xFF3B82F6)),
-    RecentOrder("#12347", "Mariscos El Faro", "$980", "3 Items", "EN REPARTO", AccentGreen, "hace 1 hora", AccentGreen)
+internal val orders = listOf(
+    Order(
+        number = "#12345",
+        client = "Victoria Ontiveros",
+        total = "$5,600",
+        items = "2 Items",
+        status = "PENDIENTE",
+        statusColor = Color(0xFFFFA800),
+        elapsed = "hace 5 min",
+        accent = Color(0xFFFFA000),
+        totalKg = "40 kg",
+        products = listOf(OrderProduct("41/50", "$280", "20", "$5,600"))
+    ),
+    Order(
+        number = "#12346",
+        client = "Restaurante Mar y Tierra",
+        total = "$1,000",
+        items = "5 Items",
+        status = "EN PREPARACIÓN",
+        statusColor = Color(0xFF367CF4),
+        elapsed = "hace 20 min",
+        accent = Color(0xFF367CF4),
+        totalKg = "100 kg",
+        products = List(4) { OrderProduct("41/50", "$10", "20", "$200") }
+    ),
+    Order(
+        number = "#12347",
+        client = "Mariscos El Faro",
+        total = "$800",
+        items = "3 Items",
+        status = "EN REPARTO",
+        statusColor = Color(0xFF7026DF),
+        elapsed = "hace 1 hora",
+        accent = Color(0xFF7026DF),
+        totalKg = "60 kg",
+        products = List(3) { OrderProduct("41/50", "$10", "20", "$200") }
+    )
+)
+
+private data class InventoryRow(
+    val size: String,
+    val price: String,
+    val master: String,
+    val stock: String
 )
 
 @Composable
-fun DashboardScreen() {
+fun DashboardScreen(onOrderSelected: (String) -> Unit = {}) {
+    val listState = rememberLazyListState()
     Scaffold(
-        containerColor = DashboardBackground,
+        containerColor = Background,
         topBar = { DashboardHeader() },
         bottomBar = { DashboardNavigation() }
-    ) { paddingValues ->
-        LazyColumn(
+    ) { insets ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(insets)
         ) {
-            item {
-                Button(
-                    onClick = {},
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
-                ) {
-                    Text("+  Nuevo Pedido", fontWeight = FontWeight.Bold)
-                }
-            }
-            item { SectionTitle("INVENTARIO DE CAMARÓN", "Ver todo") }
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Products.forEach { product ->
-                        ProductCard(product = product, modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-            item {
-                Text(
-                    text = "PEDIDOS RECIENTES",
-                    color = DashboardNavy,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-            }
-            items(RecentOrders) { order ->
-                OrderCard(order)
-            }
-            item {
-                Text(
-                    text = "GLOBAL FOODS MÉXICO © 2026",
-                    color = DashboardNavy.copy(alpha = 0.65f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DashboardHeader() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(DashboardNavy)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text("PANEL DE CONTROL", color = AccentGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-            Text("DASHBOARD DE VENTAS", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        }
-        IconButton(onClick = {}) {
-            Icon(Icons.Outlined.Settings, contentDescription = "Configuración", tint = Color.White)
-        }
-    }
-}
-
-@Composable
-private fun SectionTitle(title: String, action: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(title, color = DashboardNavy, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Text(action, color = AccentGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun ProductCard(product: Product, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(72.dp)
-                    .background(ProductImageBackground, RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
+                    .widthIn(max = 520.dp)
+                    .align(Alignment.Center)
             ) {
-                Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = Color(0xFFB7C4CA), modifier = Modifier.size(38.dp))
-            }
-            Spacer(modifier = Modifier.height(7.dp))
-            Text(product.name, color = DashboardNavy, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(product.weight, color = DashboardNavy, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text("Stock: ${product.stock}", color = MutedText, fontSize = 10.sp)
-            Text("Precio: ${product.price}", color = MutedText, fontSize = 10.sp)
-            Text(
-                "En Stock",
-                color = AccentGreen,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .padding(top = 6.dp)
-                    .background(StockBackground, RoundedCornerShape(5.dp))
-                    .padding(horizontal = 6.dp, vertical = 3.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun OrderCard(order: RecentOrder) {
-    Card(
-        shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Box(modifier = Modifier.width(4.dp).height(88.dp).background(order.accentColor))
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp).weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(order.number, color = DashboardNavy, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    StatusBadge(order.status, order.statusColor)
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = DashboardHorizontalPadding),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    item {
+                        Spacer(Modifier.height(16.dp))
+                        NewOrderButton()
+                        Spacer(Modifier.height(17.dp))
+                        SectionLabel("INVENTARIO")
+                        Spacer(Modifier.height(8.dp))
+                        InventoryTable()
+                        Spacer(Modifier.height(18.dp))
+                        SectionLabel("PEDIDOS ACTUALES")
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    items(orders) { order ->
+                        OrderCard(order, onClick = { onOrderSelected(order.number) })
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "GLOBAL FOODS MÉXICO © 2026",
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            color = Navy.copy(alpha = .65f),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(5.dp))
-                Row {
-                    Text("Cliente: ", color = MutedText, fontSize = 10.sp)
-                    Text(order.client, color = DashboardNavy, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Text("Total: ${order.total}", color = DashboardNavy, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.height(7.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(order.items, color = MutedText, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                    Icon(Icons.Outlined.LocalShipping, contentDescription = null, tint = MutedText, modifier = Modifier.size(13.dp))
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(order.elapsed, color = MutedText, fontSize = 10.sp)
-                    Text("  ›", color = DashboardNavy, fontSize = 18.sp)
-                }
+                DashboardScrollbar(listState, Modifier.align(Alignment.CenterEnd))
             }
         }
     }
 }
 
 @Composable
-private fun StatusBadge(status: String, color: Color) {
-    Text(
-        text = status,
-        color = color,
-        fontSize = 8.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier
-            .background(color.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 4.dp)
+private fun DashboardScrollbar(state: LazyListState, modifier: Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .drawWithCache {
+                onDrawWithContent {
+                    val layout = state.layoutInfo
+                    val totalItems = layout.totalItemsCount
+                    val visibleItems = layout.visibleItemsInfo.size
+                    if (totalItems > 0 && layout.viewportSize.height > 0) {
+                        val trackHeight = size.height
+                        val thumbHeight = if (totalItems > visibleItems) {
+                            (trackHeight * visibleItems.toFloat() / totalItems.toFloat())
+                                .coerceAtLeast(32.dp.toPx())
+                        } else {
+                            trackHeight
+                        }
+                        val maxIndex = (totalItems - visibleItems).coerceAtLeast(1)
+                        val progress = if (totalItems > visibleItems) {
+                            (state.firstVisibleItemIndex.toFloat() / maxIndex).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
+                        val top = (trackHeight - thumbHeight) * progress
+                        drawRoundRect(
+                            color = Navy.copy(alpha = .10f),
+                            topLeft = androidx.compose.ui.geometry.Offset(size.width - 5.dp.toPx(), 0f),
+                            size = androidx.compose.ui.geometry.Size(3.dp.toPx(), trackHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
+                        )
+                        drawRoundRect(
+                            color = Navy.copy(alpha = .55f),
+                            topLeft = androidx.compose.ui.geometry.Offset(size.width - 4.dp.toPx(), top),
+                            size = androidx.compose.ui.geometry.Size(3.dp.toPx(), thumbHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
+                        )
+                    }
+                }
+            }
     )
 }
 
 @Composable
-private fun DashboardNavigation() {
-    NavigationBar(containerColor = Color.White) {
-        NavigationItems.forEachIndexed { index, (label, icon) ->
+private fun DashboardHeader() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(DashboardHeaderHeight)
+            .background(Navy)
+            .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 12.dp)
+            .statusBarsPadding()
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                painter = painterResource(Res.drawable.global_foods_logo),
+                contentDescription = "Global Foods México",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(width = 31.dp, height = 27.dp)
+            )
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = {},
+                modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = .12f), RoundedCornerShape(50))
+            ) {
+                Icon(Icons.Outlined.Settings, "Configuración", tint = Color.White, modifier = Modifier.size(19.dp))
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text("PANEL DE CONTROL", color = Green, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = .5.sp)
+        Text("DASHBOARD DE VENTAS", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun NewOrderButton() {
+    Box(
+        modifier = Modifier.fillMaxWidth().height(40.dp).clip(CardShape).background(Green),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("+  Nuevo Pedido", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SectionLabel(label: String) {
+    Text(label, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+}
+
+@Composable
+private fun InventoryTable() {
+    Column(
+        modifier = Modifier.fillMaxWidth().clip(CardShape).background(Color.White)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(28.dp).background(InventoryHeaderColor),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            InventoryHeaders.forEach { TableCell(it, isHeader = true) }
+        }
+        InventoryRows.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth().height(32.dp).background(Color.White),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(row.size, row.price, row.master, row.stock)
+                    .forEach { TableCell(it, isHeader = false) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.TableCell(value: String, isHeader: Boolean) {
+    Text(
+        value,
+        modifier = Modifier.weight(1f),
+        textAlign = TextAlign.Center,
+        color = if (isHeader) Color(0xFF475569) else Color(0xFF374151),
+        fontSize = if (isHeader) 9.sp else 12.sp,
+        fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Medium
+    )
+}
+
+@Composable
+private fun OrderCard(order: Order, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(86.dp)
+            .clickable(onClick = onClick),
+        shape = CardShape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(Modifier.fillMaxSize()) {
+            Box(Modifier.width(4.dp).fillMaxSize().background(order.accent))
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp).fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(order.number, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text(
+                        order.status,
+                        color = order.statusColor,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.background(order.statusColor.copy(alpha = .12f), RoundedCornerShape(5.dp))
+                            .padding(horizontal = 7.dp, vertical = 4.dp)
+                    )
+                }
+                Spacer(Modifier.height(5.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Cliente: ", color = Gray, fontSize = 10.sp)
+                    Text(order.client, color = Navy, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("Total: ${order.total}  ›", color = Navy, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(order.items, color = Gray, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                    Icon(Icons.Outlined.LocalShipping, null, tint = Gray, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text(order.elapsed, color = Gray, fontSize = 10.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun DashboardNavigation() {
+    val items = listOf(
+        "INICIO" to Icons.Outlined.Home,
+        "CLIENTES" to Icons.Outlined.People,
+        "REPORTES" to Icons.Outlined.BarChart
+    )
+    NavigationBar(
+        modifier = Modifier
+            .navigationBarsPadding()
+            .height(66.dp),
+        containerColor = Color.White,
+        tonalElevation = 0.dp
+    ) {
+        items.forEachIndexed { index, (label, icon) ->
             NavigationBarItem(
                 selected = index == 0,
                 onClick = {},
-                icon = { Icon(icon, contentDescription = label) },
+                icon = { Icon(icon, label, modifier = Modifier.size(19.dp)) },
                 label = { Text(label, fontSize = 8.sp) }
             )
         }
