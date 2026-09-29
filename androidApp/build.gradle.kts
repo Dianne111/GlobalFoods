@@ -17,6 +17,7 @@ dependencies {
 
     implementation(libs.compose.uiToolingPreview)
     debugImplementation(libs.compose.uiTooling)
+    implementation("io.ktor:ktor-client-android:2.3.9")
 }
 
 android {

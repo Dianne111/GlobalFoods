@@ -19,24 +19,57 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
-
 import globalfoods.sharedui.generated.resources.Res
 import globalfoods.sharedui.generated.resources.global_foods_logo
 
+import com.globalfoods.project.sharedlogic.network.AuthRepository
+
 @Composable
 fun LoginScreen(
-    onNavigateToRegister: () -> Unit,
+    onNavigateToRegister: () -> Unit = {},
     onLoginSuccess: () -> Unit
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+
+    // Variables para controlar la alerta visual
+    var showDialog by remember { mutableStateOf(false) }
+    var dialogMessage by remember { mutableStateOf("") }
+
+    val coroutineScope = rememberCoroutineScope()
+    val authRepository = remember { AuthRepository() }
 
     val primaryBlue = Color(0xFF006699)
     val darkBlue = Color(0xFF0A2E46)
     val backgroundGradient = Brush.verticalGradient(
         colors = listOf(Color(0xFF0A4D68), Color(0xFF6FA8DC))
     )
+
+    // Alerta que se mostrará si las credenciales fallan
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = {
+                Text(
+                    text = "Aviso",
+                    fontWeight = FontWeight.Bold,
+                    color = darkBlue
+                )
+            },
+            text = {
+                Text(text = dialogMessage)
+            },
+            confirmButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Aceptar", color = primaryBlue, fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = Color.White
+        )
+    }
 
     Box(
         modifier = Modifier.fillMaxSize().background(backgroundGradient),
@@ -79,10 +112,11 @@ fun LoginScreen(
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
-                        placeholder = { Text("Correo electrónico o Usuario") },
+                        placeholder = { Text("Usuario") },
                         leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = primaryBlue) },
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -94,31 +128,52 @@ fun LoginScreen(
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = primaryBlue) },
                         visualTransformation = PasswordVisualTransformation(),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
 
                     Button(
-                        onClick = { onLoginSuccess() },
+                        onClick = {
+                            if (username.isNotBlank() && password.isNotBlank()) {
+                                isLoading = true
+                                coroutineScope.launch {
+                                    val resultado = authRepository.iniciarSesion(username, password)
+                                    isLoading = false
+
+                                    resultado.fold(
+                                        onSuccess = {
+                                            onLoginSuccess() // Si es exitoso, avisa a App.kt para navegar
+                                        },
+                                        onFailure = { error ->
+                                            // Si falla, lanza la alerta
+                                            dialogMessage = error.message ?: "Error desconocido"
+                                            showDialog = true
+                                        }
+                                    )
+                                }
+                            } else {
+                                dialogMessage = "Por favor, ingresa tu usuario y contraseña."
+                                showDialog = true
+                            }
+                        },
+                        enabled = !isLoading,
                         colors = ButtonDefaults.buttonColors(containerColor = darkBlue),
                         modifier = Modifier.fillMaxWidth().height(50.dp)
                     ) {
-                        Text("Iniciar Sesión", color = Color.White, fontSize = 16.sp)
+                        if (isLoading) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                        } else {
+                            Text("Iniciar Sesión", color = Color.White, fontSize = 16.sp)
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    TextButton(onClick = { /* Lógica para recuperar contraseña */ }) {
-                        Text(
-                            text = "Recuperar Contraseña",
-                            color = primaryBlue,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                    TextButton(onClick = { /* ... */ }) {
+                        Text("Recuperar Contraseña", color = primaryBlue, fontSize = 14.sp)
                     }
-
-
                 }
             }
         }

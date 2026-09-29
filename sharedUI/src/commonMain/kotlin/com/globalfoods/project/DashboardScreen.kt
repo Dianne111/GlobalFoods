@@ -249,7 +249,7 @@ private fun DashboardHeader() {
                 painter = painterResource(Res.drawable.global_foods_logo),
                 contentDescription = "Global Foods México",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.size(width = 31.dp, height = 27.dp)
+                modifier = Modifier.size(width = 100.dp, height = 50.dp)
             )
             Spacer(Modifier.weight(1f))
             IconButton(
