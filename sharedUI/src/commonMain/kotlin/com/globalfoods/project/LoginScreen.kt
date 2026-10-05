@@ -24,7 +24,7 @@ import org.jetbrains.compose.resources.painterResource
 import globalfoods.sharedui.generated.resources.Res
 import globalfoods.sharedui.generated.resources.global_foods_logo
 
-import com.globalfoods.project.sharedlogic.network.AuthRepository
+import com.globalfoods.project.sharedlogic.network.auth.AuthRepository
 
 @Composable
 fun LoginScreen(

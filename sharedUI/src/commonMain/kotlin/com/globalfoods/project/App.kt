@@ -10,14 +10,15 @@ import androidx.compose.runtime.setValue
 @Composable
 fun App() {
     MaterialTheme {
-        // Esta variable de estado controla en qué pantalla te encuentras
+        // Controla en qué pantalla te encuentras
         var pantallaActual by remember { mutableStateOf("Login") }
+        // Guarda el ID del pedido cuando haces clic en uno
+        var idPedidoSeleccionado by remember { mutableStateOf("") }
 
         when (pantallaActual) {
             "Login" -> {
                 LoginScreen(
                     onLoginSuccess = {
-                        // Cuando el login es correcto, cambiamos el estado a Dashboard
                         pantallaActual = "Dashboard"
                     }
                 )
@@ -25,7 +26,18 @@ fun App() {
             "Dashboard" -> {
                 DashboardScreen(
                     onOrderSelected = { orderNumber ->
-                        // Aquí en el futuro puedes navegar al detalle del pedido
+                        // Guardamos el número de pedido y cambiamos de pantalla
+                        idPedidoSeleccionado = orderNumber
+                        pantallaActual = "Detalles"
+                    }
+                )
+            }
+            "Detalles" -> {
+                // CAMBIO AQUÍ: Usamos OrderDetailScreen y el parámetro onBack
+                OrderDetailScreen(
+                    orderId = idPedidoSeleccionado,
+                    onBack = {
+                        pantallaActual = "Dashboard"
                     }
                 )
             }
