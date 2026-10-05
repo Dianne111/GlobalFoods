@@ -49,7 +49,11 @@ private val InventoryHeaderColor = Color(0xFFF8FAFC)
 private val InventoryHeaders = listOf("TALLA", "PRECIO", "MASTER", "STOCK")
 
 @Composable
-fun DashboardScreen(onOrderSelected: (String) -> Unit = {}) {
+fun DashboardScreen(
+    onOrderSelected: (String) -> Unit = {},
+    onNewOrder: () -> Unit = {},
+    onLogout: () -> Unit = {}
+) {
     val listState = rememberLazyListState()
 
     val dashboardRepository = remember { DashboardRepository() }
@@ -70,7 +74,7 @@ fun DashboardScreen(onOrderSelected: (String) -> Unit = {}) {
 
     Scaffold(
         containerColor = Background,
-        topBar = { DashboardHeader() },
+        topBar = { DashboardHeader(onLogout) },
         bottomBar = { DashboardNavigation() }
     ) { insets ->
         Box(
@@ -93,7 +97,7 @@ fun DashboardScreen(onOrderSelected: (String) -> Unit = {}) {
                 ) {
                     item {
                         Spacer(Modifier.height(16.dp))
-                        NewOrderButton()
+                        NewOrderButton(onClick = onNewOrder)
                         Spacer(Modifier.height(17.dp))
                         SectionLabel("INVENTARIO")
                         Spacer(Modifier.height(8.dp))
@@ -198,7 +202,24 @@ private fun InventoryTable(articulos: List<ArticuloInventario>) {
 }
 
 @Composable
-private fun DashboardHeader() {
+private fun DashboardHeader(onLogout: () -> Unit) {
+    var showSettings by remember { mutableStateOf(false) }
+
+    if (showSettings) {
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            title = { Text("Configuración", color = Navy, fontWeight = FontWeight.Bold) },
+            text = {
+                TextButton(onClick = onLogout) {
+                    Icon(Icons.Outlined.Logout, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Cerrar sesión")
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -216,7 +237,7 @@ private fun DashboardHeader() {
             )
             Spacer(Modifier.weight(1f))
             IconButton(
-                onClick = {},
+                onClick = { showSettings = true },
                 modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = .12f), RoundedCornerShape(50))
             ) {
                 Icon(Icons.Outlined.Settings, "Configuración", tint = Color.White, modifier = Modifier.size(19.dp))
@@ -229,9 +250,10 @@ private fun DashboardHeader() {
 }
 
 @Composable
-private fun NewOrderButton() {
+private fun NewOrderButton(onClick: () -> Unit) {
     Box(
-        modifier = Modifier.fillMaxWidth().height(40.dp).clip(CardShape).background(Green),
+        modifier = Modifier.fillMaxWidth().height(40.dp).clip(CardShape).background(Green)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text("+  Nuevo Pedido", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)

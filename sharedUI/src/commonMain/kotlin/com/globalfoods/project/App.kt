@@ -29,17 +29,36 @@ fun App() {
                         // Guardamos el número de pedido y cambiamos de pantalla
                         idPedidoSeleccionado = orderNumber
                         pantallaActual = "Detalles"
+                    },
+                    onNewOrder = { pantallaActual = "NuevoPedido" },
+                    onLogout = {
+                        idPedidoSeleccionado = ""
+                        pantallaActual = "Login"
+                    }
+                )
+            }
+            "NuevoPedido" -> {
+                NewOrderScreen(
+                    onBack = { pantallaActual = "Dashboard" },
+                    onLogout = {
+                        idPedidoSeleccionado = ""
+                        pantallaActual = "Login"
                     }
                 )
             }
             "Detalles" -> {
-                // CAMBIO AQUÍ: Usamos OrderDetailScreen y el parámetro onBack
-                OrderDetailScreen(
-                    orderId = idPedidoSeleccionado,
-                    onBack = {
-                        pantallaActual = "Dashboard"
-                    }
-                )
+                val order = orders.firstOrNull { it.number == idPedidoSeleccionado }
+
+                if (order != null) {
+                    OrderDetailScreen(
+                        order = order,
+                        onNavigateBack = {
+                            pantallaActual = "Dashboard"
+                        }
+                    )
+                } else {
+                    pantallaActual = "Dashboard"
+                }
             }
         }
     }
