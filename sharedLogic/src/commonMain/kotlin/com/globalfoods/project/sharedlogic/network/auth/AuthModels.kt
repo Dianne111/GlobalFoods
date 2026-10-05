@@ -1,4 +1,4 @@
-package com.globalfoods.project.sharedlogic.network
+package com.globalfoods.project.sharedlogic.network.auth
 
 import kotlinx.serialization.Serializable
 

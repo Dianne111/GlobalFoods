@@ -1,9 +1,9 @@
-package com.globalfoods.project.sharedlogic.network
+package com.globalfoods.project.sharedlogic.network.core
 
 import io.ktor.client.*
-import io.ktor.client.plugins.auth.*
-import io.ktor.client.plugins.auth.providers.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.header
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 
@@ -19,12 +19,10 @@ val globalFoodsClient = HttpClient {
         })
     }
 
-    install(Auth) {
-        bearer {
-            loadTokens {
-                // Aquí usamos el sessionToken (que será el accessToken de la API)
-                sessionToken?.let { BearerTokens(it, "") }
-            }
+    // MÉTODO INFALIBLE: Inyectamos el header manualmente (igual que en JavaScript)
+    defaultRequest {
+        if (sessionToken != null) {
+            header("Authorization", "Bearer $sessionToken")
         }
     }
 }
