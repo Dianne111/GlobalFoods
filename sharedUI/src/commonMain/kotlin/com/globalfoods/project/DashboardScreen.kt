@@ -338,7 +338,7 @@ private fun OrderCard(order: Order, onClick: () -> Unit) {
 data class OrderProduct(
     val name: String,
     val price: Double,
-    val quantity: Int,
+    val quantity: Double,
     val subtotal: Double
 )
 
@@ -367,7 +367,7 @@ val orders = listOf(
         accent = Color(0xFFFFA000),
         totalKg = "15.5 kg",
         products = listOf(
-            OrderProduct("Camarón Talla 41/50", 280.0, 2, 560.0)
+            OrderProduct("Camarón Talla 41/50", 280.0, 2.0, 560.0)
         )
     ),
     Order(
@@ -381,8 +381,8 @@ val orders = listOf(
         accent = Color(0xFF367CF4),
         totalKg = "32.0 kg",
         products = listOf(
-            OrderProduct("Pulpo Cocido", 450.0, 2, 900.0),
-            OrderProduct("Filete de Pescado", 183.33, 3, 550.0)
+            OrderProduct("Pulpo Cocido", 450.0, 2.0, 900.0),
+            OrderProduct("Filete de Pescado", 183.33, 3.0, 550.0)
         )
     ),
     Order(
@@ -396,7 +396,7 @@ val orders = listOf(
         accent = Color(0xFF7026DF),
         totalKg = "24.5 kg",
         products = listOf(
-            OrderProduct("Callo de Hacha", 980.0, 1, 980.0)
+            OrderProduct("Callo de Hacha", 980.0, 1.0, 980.0)
         )
     )
 )

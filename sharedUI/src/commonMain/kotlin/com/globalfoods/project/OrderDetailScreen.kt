@@ -118,7 +118,11 @@ fun OrderDetailScreen(
                             Text(text = product.name, color = Color(0xFF143D58), fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(6.dp))
                             Row {
-                                Text(text = "Cant: ${product.quantity}", color = Color(0xFF64748B), fontSize = 12.sp)
+                                Text(
+                                    text = "Cant: ${product.quantity.toString().trimEnd('0').trimEnd('.')}",
+                                    color = Color(0xFF64748B),
+                                    fontSize = 12.sp
+                                )
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Text(text = "Precio: $${product.price}", color = Color(0xFF64748B), fontSize = 12.sp)
                             }

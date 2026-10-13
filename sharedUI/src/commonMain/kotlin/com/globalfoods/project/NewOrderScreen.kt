@@ -61,7 +61,13 @@ import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
 
-private enum class NewOrderStep { Catalog, Details, Summary }
+private enum class NewOrderStep { Details, Catalog, Summary }
+
+private val freezerAddress = "Congeladora Global Foods México, Av. Principal 123, Guadalajara, Jalisco"
+private val customerBranches = listOf(
+    "Sucursal Centro" to "Av. Juárez 120, Centro, Guadalajara, Jalisco",
+    "Sucursal Norte" to "Av. Federalismo 850, Col. Lomas, Guadalajara, Jalisco"
+)
 
 private data class NewOrderFormState(
     val quantities: Map<String, String> = emptyMap(),
@@ -70,6 +76,9 @@ private data class NewOrderFormState(
     val phone: String = "",
     val branch: String = "",
     val address: String = "",
+    val street: String = "",
+    val neighborhood: String = "",
+    val postalCode: String = "",
     val references: String = "",
     val deliveryDate: String = "",
     val notes: String = "",
@@ -80,7 +89,8 @@ private data class NewOrderFormState(
     val hasCapturedData: Boolean
         get() = quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true } ||
             client.isNotBlank() || phone.isNotBlank() || branch.isNotBlank() ||
-            address.isNotBlank() || references.isNotBlank() || deliveryDate.isNotBlank() ||
+            address.isNotBlank() || street.isNotBlank() || neighborhood.isNotBlank() ||
+            postalCode.isNotBlank() || references.isNotBlank() || deliveryDate.isNotBlank() ||
             notes.isNotBlank() || shipping.isNotBlank()
 }
 
@@ -91,7 +101,7 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     var inventory by remember { mutableStateOf<List<ArticuloInventario>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var step by remember { mutableStateOf(NewOrderStep.Catalog) }
+    var step by remember { mutableStateOf(NewOrderStep.Details) }
     var form by remember { mutableStateOf(NewOrderFormState()) }
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -106,12 +116,12 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
 
     fun goBack() {
         when (step) {
-            NewOrderStep.Catalog -> onBack()
+            NewOrderStep.Catalog -> step = NewOrderStep.Details
             NewOrderStep.Details, NewOrderStep.Summary -> {
                 if (form.hasCapturedData) {
                     showDiscardDialog = true
                 } else {
-                    step = NewOrderStep.Catalog
+                    onBack()
                 }
             }
         }
@@ -133,7 +143,7 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                         TextButton(onClick = {
                             form = NewOrderFormState()
                             showDiscardDialog = false
-                            step = NewOrderStep.Catalog
+                            step = NewOrderStep.Details
                         }) { Text("Descartar", color = Color(0xFFB91C1C)) }
                     }
                 }
@@ -184,7 +194,7 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 onFormChange = { form = it },
                 onDatePicker = { showDatePicker = true },
                 onContinue = { step = NewOrderStep.Summary },
-                onCatalog = ::goBack,
+                onCatalog = { step = NewOrderStep.Catalog },
                 inventory = inventory,
                 modifier = Modifier.padding(insets)
             )
@@ -193,7 +203,7 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 inventory = inventory,
                 onFormChange = { form = it },
                 onEdit = { step = NewOrderStep.Details },
-                onProducts = ::goBack,
+                onProducts = { step = NewOrderStep.Catalog },
                 modifier = Modifier.padding(insets)
             )
         }
@@ -324,7 +334,18 @@ private fun DetailsStep(
                 label = "Tipo de cliente",
                 value = form.clientType,
                 options = listOf("Cliente registrado", "Cliente esporádico"),
-                onSelected = { onFormChange(form.copy(clientType = it)) }
+                onSelected = {
+                    onFormChange(
+                        form.copy(
+                            clientType = it,
+                            branch = "",
+                            address = "",
+                            street = "",
+                            neighborhood = "",
+                            postalCode = ""
+                        )
+                    )
+                }
             )
             if (form.clientType.isNotBlank()) {
                 FormField("Nombre del cliente", form.client, { onFormChange(form.copy(client = it)) })
@@ -352,31 +373,119 @@ private fun DetailsStep(
             Row(Modifier.fillMaxWidth()) {
                 listOf("Dirección", "Recolección").forEach { mode ->
                     TextButton(
-                        onClick = { onFormChange(form.copy(deliveryMode = mode)) },
+                        onClick = {
+                            onFormChange(
+                                form.copy(
+                                    deliveryMode = mode,
+                                    branch = if (mode == "Recolección") "Congeladora Global Foods" else "",
+                                    address = if (mode == "Recolección") freezerAddress else "",
+                                    street = if (mode == "Recolección") "" else form.street,
+                                    neighborhood = if (mode == "Recolección") "" else form.neighborhood,
+                                    postalCode = if (mode == "Recolección") "" else form.postalCode
+                                )
+                            )
+                        },
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(mode, color = if (form.deliveryMode == mode) Green else Gray, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-            BranchField(
-                value = form.branch,
-                onSelected = { onFormChange(form.copy(branch = it)) }
-            )
-            if (form.branch.isBlank()) {
+            if (form.deliveryMode == "Recolección") {
+                AddressCard(freezerAddress, title = "Dirección de la congeladora")
+            } else if (form.clientType == "Cliente registrado") {
+                BranchField(
+                    value = form.branch,
+                    onSelected = { branch ->
+                        onFormChange(form.copy(branch = branch, address = branchAddress(branch)))
+                    }
+                )
+                if (form.branch.isBlank()) {
+                    Text(
+                        "Selecciona una sucursal de tu perfil para continuar.",
+                        color = Color(0xFFB45309),
+                        fontSize = 12.sp
+                    )
+                } else {
+                    AddressCard(form.address)
+                }
+            } else {
                 Text(
-                    "Debes ingresar al menos una sucursal en tu perfil para continuar.",
+                    "Dirección de entrega",
+                    color = Navy,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                FormField(
+                    "Calle",
+                    form.street,
+                    {
+                        onFormChange(
+                            form.copy(
+                                street = it,
+                                address = buildAddress(it, form.neighborhood, form.postalCode)
+                            )
+                        )
+                    }
+                )
+                FormField(
+                    "Colonia",
+                    form.neighborhood,
+                    {
+                        onFormChange(
+                            form.copy(
+                                neighborhood = it,
+                                address = buildAddress(form.street, it, form.postalCode)
+                            )
+                        )
+                    }
+                )
+                FormField(
+                    "Código postal",
+                    form.postalCode,
+                    {
+                        val postalCode = it.filter(Char::isDigit).take(5)
+                        onFormChange(
+                            form.copy(
+                                postalCode = postalCode,
+                                address = buildAddress(form.street, form.neighborhood, postalCode)
+                            )
+                        )
+                    },
+                    KeyboardType.Number
+                )
+                if (form.street.isBlank() || form.neighborhood.isBlank() || form.postalCode.isBlank()) {
+                    Text(
+                        "Captura calle, colonia y código postal para definir la ubicación de entrega.",
+                        color = Color(0xFFB45309),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            if (form.clientType.isBlank()) {
+                Text(
+                    "Selecciona el tipo de cliente para definir la ubicación de entrega.",
                     color = Color(0xFFB45309),
                     fontSize = 12.sp
                 )
-            } else if (form.deliveryMode == "Dirección") {
-                AddressCard(form.address)
             }
             FormField("Referencias", form.references, { onFormChange(form.copy(references = it)) }, singleLine = false)
             DateField(form.deliveryDate, onClick = onDatePicker)
             FormField("Notas opcionales", form.notes, { onFormChange(form.copy(notes = it)) }, singleLine = false)
             FormField("Costo de envío", form.shipping, { onFormChange(form.copy(shipping = it)) }, KeyboardType.Decimal)
-            Button(onClick = onContinue, colors = ButtonDefaults.buttonColors(containerColor = Navy), modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp).height(52.dp)) {
+            val hasProducts = form.quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true }
+            val hasLocation = form.deliveryMode == "Recolección" ||
+                (form.clientType == "Cliente registrado" && form.branch.isNotBlank()) ||
+                (form.clientType == "Cliente esporádico" &&
+                    form.street.isNotBlank() &&
+                    form.neighborhood.isNotBlank() &&
+                    form.postalCode.length == 5)
+            Button(
+                onClick = onContinue,
+                enabled = form.clientType.isNotBlank() && hasProducts && hasLocation,
+                colors = ButtonDefaults.buttonColors(containerColor = Navy),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp).height(52.dp)
+            ) {
                 Text("Continuar al resumen", fontWeight = FontWeight.Bold)
             }
         }
@@ -403,6 +512,15 @@ private fun SummaryStep(
         item {
             Text("CLIENTE", color = Gray, fontSize = 12.sp)
             Text(form.client.ifBlank { "Cliente esporádico" }, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Text("UBICACIÓN DE ENTREGA", color = Gray, fontSize = 12.sp)
+            Text(
+                if (form.deliveryMode == "Recolección") freezerAddress
+                else form.address.ifBlank { "Ubicación pendiente" },
+                color = Navy,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold
+            )
             Spacer(Modifier.height(12.dp))
             Text("RESUMEN DEL PEDIDO", color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
@@ -539,20 +657,30 @@ private fun BranchField(value: String, onSelected: (String) -> Unit) {
     DropdownField(
         label = "Sucursal",
         value = value,
-        options = emptyList(),
+        options = customerBranches.map { it.first },
         onSelected = onSelected
     )
 }
 
+private fun branchAddress(branch: String): String =
+    customerBranches.firstOrNull { it.first == branch }?.second.orEmpty()
+
+private fun buildAddress(street: String, neighborhood: String, postalCode: String): String =
+    listOf(
+        street.trim(),
+        neighborhood.trim(),
+        postalCode.trim().let { if (it.isBlank()) "" else "C.P. $it" }
+    ).filter(String::isNotBlank).joinToString(", ")
+
 @Composable
-private fun AddressCard(address: String) {
+private fun AddressCard(address: String, title: String = "Dirección de entrega") {
     val uriHandler = LocalUriHandler.current
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(14.dp)) {
-            Text("Dirección de entrega", color = Navy, fontWeight = FontWeight.Bold)
+            Text(title, color = Navy, fontWeight = FontWeight.Bold)
             Text(
                 address.ifBlank { "La sucursal seleccionada no tiene dirección disponible." },
                 color = Gray,

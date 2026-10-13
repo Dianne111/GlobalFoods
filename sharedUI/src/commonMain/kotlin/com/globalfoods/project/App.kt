@@ -11,11 +11,16 @@ import androidx.compose.runtime.setValue
 fun App() {
     MaterialTheme {
         // Controla en qué pantalla te encuentras
-        var pantallaActual by remember { mutableStateOf("Login") }
+        var pantallaActual by remember { mutableStateOf("Splash") }
         // Guarda el ID del pedido cuando haces clic en uno
         var idPedidoSeleccionado by remember { mutableStateOf("") }
 
         when (pantallaActual) {
+            "Splash" -> {
+                SplashScreen(
+                    onFinished = { pantallaActual = "Login" }
+                )
+            }
             "Login" -> {
                 LoginScreen(
                     onLoginSuccess = {
