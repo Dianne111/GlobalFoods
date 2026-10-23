@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +29,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +45,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,9 +56,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -116,8 +121,8 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
 
     fun goBack() {
         when (step) {
-            NewOrderStep.Catalog -> step = NewOrderStep.Details
-            NewOrderStep.Details, NewOrderStep.Summary -> {
+            NewOrderStep.Catalog, NewOrderStep.Summary -> step = NewOrderStep.Details
+            NewOrderStep.Details -> {
                 if (form.hasCapturedData) {
                     showDiscardDialog = true
                 } else {
@@ -137,7 +142,7 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 Column(Modifier.padding(20.dp)) {
                     Text("¿Descartar información?", fontWeight = FontWeight.Bold, color = Navy, fontSize = 18.sp)
                     Spacer(Modifier.height(8.dp))
-                    Text("Si regresas al catálogo, los datos capturados se perderán.", color = Gray)
+                    Text("Si regresas al dashboard, los datos capturados se perderán.", color = Gray)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = { showDiscardDialog = false }) { Text("Continuar editando") }
                         TextButton(onClick = {
@@ -210,18 +215,14 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     }
 
     if (showDatePicker) {
-        Dialog(
+        DateSelectionDialog(
+            initialValue = form.deliveryDate,
             onDismissRequest = { showDatePicker = false },
-        ) {
-            DateSelectionCard(
-                initialValue = form.deliveryDate,
-                onDismiss = { showDatePicker = false },
-                onConfirm = { date ->
-                    form = form.copy(deliveryDate = date)
-                    showDatePicker = false
-                }
-            )
-        }
+            onConfirm = { date ->
+                form = form.copy(deliveryDate = date)
+                showDatePicker = false
+            }
+        )
     }
 }
 
@@ -232,28 +233,54 @@ private fun NewOrderHeader(
     onSettings: () -> Unit
 ) {
     Column(
-        Modifier.fillMaxWidth().background(Navy).padding(start = 8.dp, end = 12.dp, top = 10.dp, bottom = 16.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Navy)
+            .statusBarsPadding()
+            .padding(start = 8.dp, end = 12.dp, top = 10.dp, bottom = 16.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Outlined.ArrowBack, "Regresar", tint = Color.White)
+        Text(
+            "NUEVO PEDIDO",
+            color = Green,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .size(40.dp)
+            ) {
+                Icon(Icons.Outlined.ArrowBack, "Regresar", tint = Color.White, modifier = Modifier.size(20.dp))
             }
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onSettings) {
-                Icon(Icons.Outlined.Settings, "Configuración", tint = Color.White)
+            Text(
+                when (step) {
+                    NewOrderStep.Catalog -> "CATÁLOGO"
+                    NewOrderStep.Details -> "GENERAR PEDIDO"
+                    NewOrderStep.Summary -> "RESUMEN DEL PEDIDO"
+                },
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.align(Alignment.Center)
+            )
+            IconButton(
+                onClick = onSettings,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(40.dp)
+            ) {
+                Icon(Icons.Outlined.Settings, "Configuración", tint = Color.White, modifier = Modifier.size(20.dp))
             }
         }
-        Text("NUEVO PEDIDO", color = Green, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        Text(
-            when (step) {
-                NewOrderStep.Catalog -> "CATÁLOGO"
-                NewOrderStep.Details -> "GENERAR PEDIDO"
-                NewOrderStep.Summary -> "RESUMEN DEL PEDIDO"
-            },
-            color = Color.White,
-            fontSize = 19.sp,
-            fontWeight = FontWeight.Bold
-        )
     }
 }
 
@@ -725,42 +752,126 @@ private fun DateField(value: String, onClick: () -> Unit) {
 
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DateSelectionCard(
+private fun DateSelectionDialog(
     initialValue: String,
-    onDismiss: () -> Unit,
+    onDismissRequest: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    var date by remember { mutableStateOf(initialValue) }
-    val isValid = date.matches(Regex("\\d{2}/\\d{2}/\\d{4}"))
-
-    Card(
-        modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).padding(16.dp),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
-    ) {
-        Column(Modifier.padding(20.dp)) {
-            Text("Seleccionar fecha", color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text("Captura la fecha de entrega", color = Gray, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
-            OutlinedTextField(
-                value = date,
-                onValueChange = { value ->
-                    date = value.filter { it.isDigit() || it == '/' }.take(10)
-                },
-                label = { Text("Fecha de entrega") },
-                placeholder = { Text("DD/MM/AAAA") },
-                supportingText = { Text("Formato: DD/MM/AAAA") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                colors = outlinedFieldColors(),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Cancelar") }
-                TextButton(onClick = { onConfirm(date) }, enabled = isValid) { Text("Aceptar") }
-            }
+    val today = currentDateMillis()
+    val firstSelectableDate = today + MILLIS_PER_DAY
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = dateToMillis(initialValue)
+            ?.takeIf { it >= firstSelectableDate },
+        yearRange = 1900..2100,
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                utcTimeMillis >= firstSelectableDate
         }
+    )
+    val selectedDate = datePickerState.selectedDateMillis
+
+    DatePickerDialog(
+        onDismissRequest = onDismissRequest,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(millisToDate(selectedDate!!)) },
+                enabled = selectedDate != null
+            ) { Text("Aceptar") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) { Text("Cancelar") }
+        }
+    ) {
+        DatePicker(
+            state = datePickerState,
+            showModeToggle = false,
+            title = {
+                Text(
+                    "Seleccionar fecha",
+                    color = Navy,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            },
+            headline = {
+                Text(
+                    "Selecciona la fecha de entrega",
+                    color = Gray,
+                    fontSize = 11.sp,
+                    maxLines = 1
+                )
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
     }
+}
+
+private fun currentDateMillis(): Long =
+    (kotlin.time.Clock.System.now().toEpochMilliseconds() / MILLIS_PER_DAY) * MILLIS_PER_DAY
+
+private fun dateToMillis(value: String): Long? {
+    if (!value.matches(Regex("\\d{2}/\\d{2}/\\d{4}"))) return null
+
+    val day = value.substring(0, 2).toInt()
+    val month = value.substring(3, 5).toInt()
+    val year = value.substring(6, 10).toInt()
+
+    if (year !in 1900..2100 || month !in 1..12) return null
+
+    val daysInMonth = when (month) {
+        2 -> if (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) 29 else 28
+        4, 6, 9, 11 -> 30
+        else -> 31
+    }
+
+    if (day !in 1..daysInMonth) return null
+
+    return daysFromCivil(year, month, day) * MILLIS_PER_DAY
+}
+
+private fun millisToDate(millis: Long): String {
+    val (year, month, day) = civilFromDays(millis / MILLIS_PER_DAY)
+    return buildString {
+        append(day.toString().padStart(2, '0'))
+        append('/')
+        append(month.toString().padStart(2, '0'))
+        append('/')
+        append(year.toString().padStart(4, '0'))
+    }
+}
+
+private const val MILLIS_PER_DAY = 86_400_000L
+
+private fun daysFromCivil(year: Int, month: Int, day: Int): Long {
+    var adjustedYear = year
+    adjustedYear -= if (month <= 2) 1 else 0
+    val era = if (adjustedYear >= 0) adjustedYear / 400 else (adjustedYear - 399) / 400
+    val yearOfEra = adjustedYear - era * 400
+    val monthFromMarch = month + if (month > 2) -3 else 9
+    val dayOfYear = (153 * monthFromMarch + 2) / 5 + day - 1
+    val dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+    return era * 146097L + dayOfEra - 719468L
+}
+
+private fun civilFromDays(days: Long): Triple<Int, Int, Int> {
+    val adjustedDays = days + 719468L
+    val era = if (adjustedDays >= 0) adjustedDays / 146097 else (adjustedDays - 146096) / 146097
+    val dayOfEra = adjustedDays - era * 146097
+    val yearOfEra = (dayOfEra - dayOfEra / 1460 + dayOfEra / 36524 - dayOfEra / 146096) / 365
+    var year = (yearOfEra + era * 400).toInt()
+    val dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100)
+    val monthPart = (5 * dayOfYear + 2) / 153
+    val day = (dayOfYear - (153 * monthPart + 2) / 5 + 1).toInt()
+    val month = (monthPart + if (monthPart < 10) 3 else -9).toInt()
+    year += if (month <= 2) 1 else 0
+    return Triple(year, month, day)
 }
 
 @Composable

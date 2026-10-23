@@ -282,6 +282,7 @@ private fun RowScope.TableCell(value: String, isHeader: Boolean) {
 internal fun DashboardNavigation() {
     val items = listOf(
         "INICIO" to Icons.Outlined.Home,
+        "PEDIDOS" to Icons.Outlined.ReceiptLong,
         "CLIENTES" to Icons.Outlined.People,
         "REPORTES" to Icons.Outlined.BarChart
     )
