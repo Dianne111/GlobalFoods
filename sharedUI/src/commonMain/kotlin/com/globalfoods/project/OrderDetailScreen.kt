@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,6 +20,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.globalfoods.project.sharedlogic.network.orders.Branch
+import com.globalfoods.project.sharedlogic.network.orders.Client
+import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import kotlinx.coroutines.launch
 
@@ -33,6 +37,49 @@ fun OrderDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var response by remember(order.id) { mutableStateOf(order.response) }
+    var linkedClient by remember(order.id) { mutableStateOf<Client?>(null) }
+    var linkedBranch by remember(order.id) { mutableStateOf<Branch?>(null) }
+
+    LaunchedEffect(order.id) {
+        if (order.id <= 0) return@LaunchedEffect
+        val detail = repository.getOrder(order.id).getOrNull() ?: order.response ?: return@LaunchedEffect
+        response = detail
+        val delivery = OrderObservations.decode(detail.notes).delivery
+        val clientId = detail.clientId ?: detail.client?.id
+        val listClient = order.response?.client?.takeIf { it.id == clientId }
+        linkedClient = listClient
+        if (clientId != null && delivery == null && detail.client?.name.isNullOrBlank() && listClient?.name.isNullOrBlank()) {
+            linkedClient = repository.getClients().getOrNull()?.firstOrNull { it.id == clientId }
+        }
+        val branchId = detail.branchId
+        if (branchId != null && delivery?.address.isNullOrBlank()) {
+            val branch = detail.client?.branches?.firstOrNull { it.id == branchId }
+                ?: linkedClient?.branches?.firstOrNull { it.id == branchId }
+            linkedBranch = branch
+            if (clientId != null && branch?.address.isNullOrBlank()) {
+                linkedBranch = repository.getBranches(clientId).getOrNull()?.firstOrNull { it.id == branchId } ?: branch
+            }
+        }
+    }
+
+    val summary = remember(order, response) { response?.let(::toOrder) ?: order }
+    val observations = remember(response?.notes) { OrderObservations.decode(response?.notes) }
+    val delivery = observations.delivery
+    val clientName = delivery?.clientName?.takeIf { it.isNotBlank() }
+        ?: response?.client?.name?.takeIf { it.isNotBlank() }
+        ?: linkedClient?.name?.takeIf { it.isNotBlank() }
+        ?: summary.client
+    val phone = delivery?.phone ?: response?.client?.phone?.takeIf { it.isNotBlank() } ?: linkedClient?.phone
+    val branchName = delivery?.branchName?.takeIf { it.isNotBlank() } ?: linkedBranch?.name
+    val address = delivery?.address?.takeIf { it.isNotBlank() } ?: linkedBranch?.address
+    val isPickup = delivery?.method == "Recolección"
+    val deliveryMethod = when {
+        isPickup -> "Recolección"
+        response?.branchId != null -> "Entrega a sucursal"
+        delivery?.method == "Dirección" -> "Envío a domicilio"
+        else -> null
+    }
     Scaffold(
         containerColor = Color(0xFFF1F8FA),
         topBar = {
@@ -69,17 +116,22 @@ fun OrderDetailScreen(
                         ) {
                             Text(text = "Cliente:", color = Color(0xFF64748B), fontSize = 14.sp)
                             Text(
-                                text = order.status,
-                                color = order.statusColor,
+                                text = summary.status,
+                                color = summary.statusColor,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier
-                                    .background(order.statusColor.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                                    .background(summary.statusColor.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
 
-                        Text(text = order.client, color = Color(0xFF143D58), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(text = clientName, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        delivery?.clientType?.let { Text(it, color = Gray, fontSize = 13.sp) }
+                        phone?.takeIf { it.isNotBlank() }?.let {
+                            Spacer(Modifier.height(8.dp))
+                            OrderDetailField("Celular", it)
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
                         HorizontalDivider(color = Color(0xFFF1F8FA))
                         Spacer(modifier = Modifier.height(16.dp))
@@ -90,17 +142,12 @@ fun OrderDetailScreen(
                         ) {
                             Column {
                                 Text(text = "Peso Total:", color = Color(0xFF64748B), fontSize = 12.sp)
-                                Text(text = order.totalKg, color = Color(0xFF143D58), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                                Text(text = summary.totalKg, color = Color(0xFF143D58), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(text = "Monto Total:", color = Color(0xFF64748B), fontSize = 12.sp)
-                                Text(text = order.total, color = Color(0xFF0DB982), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                Text(text = summary.total, color = Color(0xFF0DB982), fontSize = 18.sp, fontWeight = FontWeight.Bold)
                             }
-                            TextButton(
-                                onClick = { showDeleteDialog = true },
-                                enabled = !isDeleting,
-                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
-                            ) { Text("Eliminar pedido") }
                         }
                     }
                 }
@@ -131,8 +178,34 @@ fun OrderDetailScreen(
             }
 
             item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("ENTREGA Y OBSERVACIONES", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        OrderDetailField("Fecha de entrega", formatDeliveryDate(response?.date))
+                        OrderDetailField("Método de entrega", deliveryMethod)
+                        if (isPickup) {
+                            OrderDetailField("Punto de recolección", "Congeladora Global Foods México")
+                        } else {
+                            if (response?.branchId != null || !branchName.isNullOrBlank()) {
+                                OrderDetailField("Sucursal", branchName)
+                            }
+                            OrderDetailField("Dirección de entrega", address)
+                        }
+                        OrderDetailField("Referencias", delivery?.references, "Sin referencias registradas")
+                        OrderDetailField("Observaciones", observations.notes, "Sin observaciones")
+                        OrderDetailField("Costo de envío", delivery?.shippingCost?.let { "$$it" })
+                    }
+                }
+            }
+
+            item {
                 Text(
-                    text = "PRODUCTOS (${order.products.size})",
+                    text = "PRODUCTOS (${summary.products.size})",
                     color = Color(0xFF143D58),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
@@ -140,8 +213,7 @@ fun OrderDetailScreen(
                 )
             }
 
-            // Esta función "items()" soluciona tu error de la línea 164
-            items(order.products) { product ->
+            items(summary.products) { product ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -177,6 +249,27 @@ fun OrderDetailScreen(
                     }
                 }
             }
+
+            item {
+                TextButton(
+                    onClick = { showDeleteDialog = true },
+                    enabled = !isDeleting,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
+                ) { Text("Eliminar pedido") }
+            }
         }
     }
+}
+
+@Composable
+private fun OrderDetailField(label: String, value: String?, fallback: String = "Sin dato registrado") {
+    Column {
+        Text(label, color = Gray, fontSize = 12.sp)
+        Text(value?.takeIf { it.isNotBlank() } ?: fallback, color = Navy, fontSize = 14.sp)
+    }
+}
+
+private fun formatDeliveryDate(date: Int?): String? {
+    val digits = date?.toString()?.takeIf { it.length == 8 && it.all(Char::isDigit) } ?: return null
+    return "${digits.substring(6, 8)}/${digits.substring(4, 6)}/${digits.substring(0, 4)}"
 }

@@ -69,7 +69,9 @@ import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
 import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.Branch
+import com.globalfoods.project.sharedlogic.network.orders.OrderDeliveryInfo
 import com.globalfoods.project.sharedlogic.network.orders.OrderLineRequest
+import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderRequest
 
@@ -100,6 +102,9 @@ private data class NewOrderFormState(
     val deliveryMode: String = "Dirección",
     val payment: String = "Transferencia"
 ) {
+    val shippingCost: Double
+        get() = shipping.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
+
     val hasCapturedData: Boolean
         get() = quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true } ||
             client.isNotBlank() || phone.isNotBlank() || branch.isNotBlank() ||
@@ -270,7 +275,7 @@ fun NewOrderScreen(
                     val products = selectedProducts(form.quantities, inventory)
                     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
                     val total = products.sumOf { it.precio * (form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0) } +
-                        (form.shipping.replace(',', '.').toDoubleOrNull() ?: 0.0)
+                        form.shippingCost
                     val date = form.deliveryDate.split('/').let {
                         if (it.size == 3) "${it[2]}${it[1]}${it[0]}".toIntOrNull() else null
                     } ?: 0
@@ -279,18 +284,29 @@ fun NewOrderScreen(
                         saveError = "El producto ${invalidProductCode.talla} no tiene un CodigoProducto válido en el inventario."
                         return@SummaryStep
                     }
+                    val isPickup = form.deliveryMode == "Recolección"
+                    val delivery = OrderDeliveryInfo(
+                        clientName = form.client.trim(),
+                        clientType = form.clientType,
+                        method = form.deliveryMode,
+                        address = if (isPickup) "" else form.address,
+                        phone = form.phone.trim(),
+                        branchName = if (isPickup) "" else form.branch,
+                        references = form.references.trim(),
+                        shippingCost = form.shippingCost
+                    )
                     isSaving = true
                     saveError = null
                     scope.launch {
                         orderRepository.createOrder(
                             OrderRequest(
                                 clientId = form.clientId,
-                                branchId = form.branchId,
+                                branchId = form.branchId.takeUnless { isPickup },
                                 date = date,
                                 totalKg = totalKg,
                                 total = total,
                                 status = 1,
-                                notes = form.notes,
+                                notes = OrderObservations(form.notes, delivery).encode(),
                                 lines = products.map {
                                     val quantity = form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0
                                     OrderLineRequest(it.codigoProducto, it.talla, quantity, it.precio, quantity * it.precio)
@@ -493,7 +509,7 @@ private fun DetailsStep(
                     )
                 }
             )
-            if (form.clientType.isNotBlank()) {
+            if (form.clientType == "Cliente registrado") {
                 DropdownField(
                     label = "Cliente",
                     value = form.client,
@@ -513,6 +529,10 @@ private fun DetailsStep(
                         )
                     }
                 )
+            } else if (form.clientType == "Cliente esporádico") {
+                FormField("Nombre del cliente", form.client, { onFormChange(form.copy(client = it)) })
+            }
+            if (form.clientType.isNotBlank()) {
                 FormField(
                     label = "Celular",
                     value = form.phone,
@@ -547,6 +567,7 @@ private fun DetailsStep(
                             onFormChange(
                                 form.copy(
                                     deliveryMode = mode,
+                                    branchId = null,
                                     branch = if (mode == "Recolección") "Congeladora Global Foods" else "",
                                     address = if (mode == "Recolección") freezerAddress else "",
                                     street = if (mode == "Recolección") "" else form.street,
@@ -654,6 +675,7 @@ private fun DetailsStep(
             FormField("Notas opcionales", form.notes, { onFormChange(form.copy(notes = it)) }, singleLine = false)
             FormField("Costo de envío", form.shipping, { onFormChange(form.copy(shipping = it)) }, KeyboardType.Decimal)
             val hasProducts = form.quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true }
+            val hasClient = if (form.clientType == "Cliente registrado") form.clientId != null else form.client.isNotBlank()
             val hasLocation = form.deliveryMode == "Recolección" ||
                 (form.clientType == "Cliente registrado" && form.branchId != null) ||
                 (form.clientType == "Cliente esporádico" &&
@@ -662,7 +684,7 @@ private fun DetailsStep(
                     form.postalCode.length == 5)
             Button(
                 onClick = onContinue,
-                enabled = form.clientType.isNotBlank() && hasProducts && hasLocation,
+                enabled = hasClient && hasProducts && hasLocation,
                 colors = ButtonDefaults.buttonColors(containerColor = Navy),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp).height(52.dp)
             ) {
@@ -687,7 +709,7 @@ private fun SummaryStep(
     val subtotal = products.sumOf { product ->
         (form.quantities[product.talla]?.toDoubleOrNull() ?: 0.0) * product.precio
     }
-    val shippingCost = form.shipping.replace(',', '.').toDoubleOrNull() ?: 0.0
+    val shippingCost = form.shippingCost
     val total = subtotal + shippingCost
     LazyColumn(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {

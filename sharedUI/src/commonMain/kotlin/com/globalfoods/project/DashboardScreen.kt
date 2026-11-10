@@ -37,6 +37,7 @@ import org.jetbrains.compose.resources.painterResource
 // Imports de red
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
+import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
@@ -154,8 +155,10 @@ fun DashboardScreen(
     }
 }
 
-private fun toOrder(response: OrderResponse): Order {
-    val clientName = response.client?.name ?: "Cliente ${response.clientId ?: "sin asignar"}"
+internal fun toOrder(response: OrderResponse): Order {
+    val clientName = OrderObservations.decode(response.notes).delivery?.clientName?.takeIf { it.isNotBlank() }
+        ?: response.client?.name?.takeIf { it.isNotBlank() }
+        ?: "Cliente ${response.clientId ?: "sin asignar"}"
     return Order(
         number = "#${response.id}",
         client = clientName,
@@ -166,8 +169,9 @@ private fun toOrder(response: OrderResponse): Order {
         elapsed = "Fecha ${response.date}",
         accent = if (response.status == 1) Color(0xFFFFA000) else Color(0xFF367CF4),
         totalKg = "${response.totalKg} kg",
-        products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) }
-        ,id = response.id
+        products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) },
+        id = response.id,
+        response = response
     )
 }
 
@@ -384,8 +388,9 @@ data class Order(
     val elapsed: String,
     val accent: Color,
     val totalKg: String = "0 kg",
-    val products: List<OrderProduct> = emptyList()
-    ,val id: Int = 0
+    val products: List<OrderProduct> = emptyList(),
+    val id: Int = 0,
+    val response: OrderResponse? = null
 )
 
 val orders = listOf(
