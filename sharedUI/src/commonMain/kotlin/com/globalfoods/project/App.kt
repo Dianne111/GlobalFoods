@@ -13,7 +13,8 @@ fun App() {
         // Controla en qué pantalla te encuentras
         var pantallaActual by remember { mutableStateOf("Splash") }
         // Guarda el ID del pedido cuando haces clic en uno
-        var idPedidoSeleccionado by remember { mutableStateOf("") }
+        var pedidoSeleccionado by remember { mutableStateOf<Order?>(null) }
+        var refreshDashboard by remember { mutableStateOf(0) }
 
         when (pantallaActual) {
             "Splash" -> {
@@ -30,14 +31,14 @@ fun App() {
             }
             "Dashboard" -> {
                 DashboardScreen(
-                    onOrderSelected = { orderNumber ->
-                        // Guardamos el número de pedido y cambiamos de pantalla
-                        idPedidoSeleccionado = orderNumber
+                    refreshKey = refreshDashboard,
+                    onOrderSelected = { order ->
+                        pedidoSeleccionado = order
                         pantallaActual = "Detalles"
                     },
                     onNewOrder = { pantallaActual = "NuevoPedido" },
                     onLogout = {
-                        idPedidoSeleccionado = ""
+                        pedidoSeleccionado = null
                         pantallaActual = "Login"
                     }
                 )
@@ -45,19 +46,27 @@ fun App() {
             "NuevoPedido" -> {
                 NewOrderScreen(
                     onBack = { pantallaActual = "Dashboard" },
+                    onOrderCreated = {
+                        refreshDashboard++
+                        pantallaActual = "Dashboard"
+                    },
                     onLogout = {
-                        idPedidoSeleccionado = ""
+                        pedidoSeleccionado = null
                         pantallaActual = "Login"
                     }
                 )
             }
             "Detalles" -> {
-                val order = orders.firstOrNull { it.number == idPedidoSeleccionado }
+                val order = pedidoSeleccionado
 
                 if (order != null) {
                     OrderDetailScreen(
                         order = order,
                         onNavigateBack = {
+                            pantallaActual = "Dashboard"
+                        },
+                        onDeleted = {
+                            refreshDashboard++
                             pantallaActual = "Dashboard"
                         }
                     )

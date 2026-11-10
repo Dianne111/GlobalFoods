@@ -52,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,8 +64,14 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
+import com.globalfoods.project.sharedlogic.network.orders.Client
+import com.globalfoods.project.sharedlogic.network.orders.Branch
+import com.globalfoods.project.sharedlogic.network.orders.OrderLineRequest
+import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.OrderRequest
 
 private enum class NewOrderStep { Details, Catalog, Summary }
 
@@ -76,6 +83,8 @@ private val customerBranches = listOf(
 
 private data class NewOrderFormState(
     val quantities: Map<String, String> = emptyMap(),
+    val clientId: Int? = null,
+    val branchId: Int? = null,
     val client: String = "",
     val clientType: String = "",
     val phone: String = "",
@@ -85,7 +94,7 @@ private data class NewOrderFormState(
     val neighborhood: String = "",
     val postalCode: String = "",
     val references: String = "",
-    val deliveryDate: String = "",
+    val deliveryDate: String = millisToDate(currentDateMillis()),
     val notes: String = "",
     val shipping: String = "",
     val deliveryMode: String = "Dirección",
@@ -101,9 +110,19 @@ private data class NewOrderFormState(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
+fun NewOrderScreen(
+    onBack: () -> Unit,
+    onLogout: () -> Unit,
+    onOrderCreated: () -> Unit
+) {
     val repository = remember { DashboardRepository() }
+    val orderRepository = remember { OrderRepository() }
     var inventory by remember { mutableStateOf<List<ArticuloInventario>>(emptyList()) }
+    var clients by remember { mutableStateOf<List<Client>>(emptyList()) }
+    var selectedClientBranches by remember { mutableStateOf<List<Branch>>(emptyList()) }
+    var loadingBranches by remember { mutableStateOf(false) }
+    var branchesClientId by remember { mutableStateOf<Int?>(null) }
+    var branchesRequestId by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var step by remember { mutableStateOf(NewOrderStep.Details) }
@@ -111,11 +130,21 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         repository.obtenerInventario().fold(
             onSuccess = { inventory = it; loading = false },
             onFailure = { error = it.message; loading = false }
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        orderRepository.getClients().fold(
+            onSuccess = { clients = it },
+            onFailure = { saveError = it.message }
         )
     }
 
@@ -196,6 +225,34 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
             )
             NewOrderStep.Details -> DetailsStep(
                 form = form,
+                clients = clients,
+                selectedClientBranches = selectedClientBranches,
+                loadingBranches = loadingBranches,
+                onClientSelected = { client ->
+                    val requestId = branchesRequestId + 1
+                    branchesRequestId = requestId
+                    selectedClientBranches = emptyList()
+                    branchesClientId = client?.id
+                    loadingBranches = client != null
+                    client?.let { selected ->
+                        scope.launch {
+                            orderRepository.getBranches(selected.id).fold(
+                                onSuccess = { branches ->
+                                    if (branchesRequestId == requestId && branchesClientId == selected.id) {
+                                        selectedClientBranches = branches.filter { it.status == 1 }
+                                        loadingBranches = false
+                                    }
+                                },
+                                onFailure = {
+                                    if (branchesRequestId == requestId && branchesClientId == selected.id) {
+                                        loadingBranches = false
+                                        saveError = it.message
+                                    }
+                                }
+                            )
+                        }
+                    }
+                },
                 onFormChange = { form = it },
                 onDatePicker = { showDatePicker = true },
                 onContinue = { step = NewOrderStep.Summary },
@@ -209,6 +266,42 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 onFormChange = { form = it },
                 onEdit = { step = NewOrderStep.Details },
                 onProducts = { step = NewOrderStep.Catalog },
+                onSubmit = {
+                    val products = selectedProducts(form.quantities, inventory)
+                    val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
+                    val total = products.sumOf { it.precio * (form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0) } +
+                        (form.shipping.replace(',', '.').toDoubleOrNull() ?: 0.0)
+                    val date = form.deliveryDate.split('/').let {
+                        if (it.size == 3) "${it[2]}${it[1]}${it[0]}".toIntOrNull() else null
+                    } ?: 0
+                    val invalidProductCode = products.firstOrNull { it.codigoProducto <= 0 }
+                    if (invalidProductCode != null) {
+                        saveError = "El producto ${invalidProductCode.talla} no tiene un CodigoProducto válido en el inventario."
+                        return@SummaryStep
+                    }
+                    isSaving = true
+                    saveError = null
+                    scope.launch {
+                        orderRepository.createOrder(
+                            OrderRequest(
+                                clientId = form.clientId,
+                                branchId = form.branchId,
+                                date = date,
+                                totalKg = totalKg,
+                                total = total,
+                                status = 1,
+                                notes = form.notes,
+                                lines = products.map {
+                                    val quantity = form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0
+                                    OrderLineRequest(it.codigoProducto, it.talla, quantity, it.precio, quantity * it.precio)
+                                }
+                            )
+                        ).fold(
+                            onSuccess = { isSaving = false; onOrderCreated() },
+                            onFailure = { isSaving = false; saveError = it.message }
+                        )
+                    }
+                },
                 modifier = Modifier.padding(insets)
             )
         }
@@ -222,6 +315,23 @@ fun NewOrderScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 form = form.copy(deliveryDate = date)
                 showDatePicker = false
             }
+        )
+    }
+
+    if (isSaving) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Registrando pedido") },
+            text = { CircularProgressIndicator() },
+            confirmButton = {}
+        )
+    }
+    saveError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { saveError = null },
+            title = { Text("No se pudo registrar el pedido") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { saveError = null }) { Text("Aceptar") } }
         )
     }
 }
@@ -347,6 +457,10 @@ private fun CatalogProductCard(product: ArticuloInventario, quantity: String, on
 @Composable
 private fun DetailsStep(
     form: NewOrderFormState,
+    clients: List<Client>,
+    selectedClientBranches: List<Branch>,
+    loadingBranches: Boolean,
+    onClientSelected: (Client?) -> Unit,
     onFormChange: (NewOrderFormState) -> Unit,
     onDatePicker: () -> Unit,
     onContinue: () -> Unit,
@@ -362,10 +476,15 @@ private fun DetailsStep(
                 value = form.clientType,
                 options = listOf("Cliente registrado", "Cliente esporádico"),
                 onSelected = {
+                    onClientSelected(null)
                     onFormChange(
                         form.copy(
                             clientType = it,
+                            client = "",
+                            clientId = null,
+                            phone = "",
                             branch = "",
+                            branchId = null,
                             address = "",
                             street = "",
                             neighborhood = "",
@@ -375,7 +494,25 @@ private fun DetailsStep(
                 }
             )
             if (form.clientType.isNotBlank()) {
-                FormField("Nombre del cliente", form.client, { onFormChange(form.copy(client = it)) })
+                DropdownField(
+                    label = "Cliente",
+                    value = form.client,
+                    options = clients.map { it.name },
+                    onSelected = { name ->
+                        val client = clients.firstOrNull { it.name == name }
+                        onClientSelected(client)
+                        onFormChange(
+                            form.copy(
+                                client = name,
+                                clientId = client?.id,
+                                phone = client?.phone.orEmpty(),
+                                branch = "",
+                                branchId = null,
+                                address = ""
+                            )
+                        )
+                    }
+                )
                 FormField("Celular", form.phone, { onFormChange(form.copy(phone = it)) }, KeyboardType.Phone)
             }
             Spacer(Modifier.height(10.dp))
@@ -423,11 +560,21 @@ private fun DetailsStep(
             } else if (form.clientType == "Cliente registrado") {
                 BranchField(
                     value = form.branch,
-                    onSelected = { branch ->
-                        onFormChange(form.copy(branch = branch, address = branchAddress(branch)))
+                    options = selectedClientBranches.map { it.name },
+                    onSelected = { branchName ->
+                        val branch = selectedClientBranches.firstOrNull { it.name == branchName }
+                        onFormChange(form.copy(branch = branchName, branchId = branch?.id, address = branch?.address.orEmpty()))
                     }
                 )
-                if (form.branch.isBlank()) {
+                if (loadingBranches) {
+                    CircularProgressIndicator(color = Green, modifier = Modifier.size(20.dp))
+                } else if (selectedClientBranches.isEmpty()) {
+                    Text(
+                        "La API no devolvió sucursales para este cliente.",
+                        color = Color(0xFFB91C1C),
+                        fontSize = 12.sp
+                    )
+                } else if (form.branch.isBlank()) {
                     Text(
                         "Selecciona una sucursal de tu perfil para continuar.",
                         color = Color(0xFFB45309),
@@ -502,7 +649,7 @@ private fun DetailsStep(
             FormField("Costo de envío", form.shipping, { onFormChange(form.copy(shipping = it)) }, KeyboardType.Decimal)
             val hasProducts = form.quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true }
             val hasLocation = form.deliveryMode == "Recolección" ||
-                (form.clientType == "Cliente registrado" && form.branch.isNotBlank()) ||
+                (form.clientType == "Cliente registrado" && form.branchId != null) ||
                 (form.clientType == "Cliente esporádico" &&
                     form.street.isNotBlank() &&
                     form.neighborhood.isNotBlank() &&
@@ -526,6 +673,7 @@ private fun SummaryStep(
     onFormChange: (NewOrderFormState) -> Unit,
     onEdit: () -> Unit,
     onProducts: () -> Unit,
+    onSubmit: () -> Unit,
     modifier: Modifier
 ) {
     val products = selectedProducts(form.quantities, inventory)
@@ -569,17 +717,9 @@ private fun SummaryStep(
             SummaryAmountRow("Descuento", "$0.00")
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             SummaryAmountRow("Importe total", "$${total}", emphasized = true)
-            Text("FORMA DE PAGO", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
-            listOf("Transferencia", "Efectivo", "Crédito").forEach { option ->
-                Row(Modifier.fillMaxWidth().clickable { onFormChange(form.copy(payment = option)) }, verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = form.payment == option, onClick = { onFormChange(form.copy(payment = option)) })
-                    Text(option, color = Navy)
-                }
-            }
-
-            FormField("Referencia bancaria (si aplica)", "", {})
-            Button(onClick = onEdit, colors = ButtonDefaults.buttonColors(containerColor = Navy), modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp)) {
-                Text("Registrar pedido", fontWeight = FontWeight.Bold)
+            Text("El pago se registrará en una etapa posterior.", color = Gray, fontSize = 12.sp)
+            Button(onClick = onSubmit, colors = ButtonDefaults.buttonColors(containerColor = Navy), modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp)) {
+                Text("Registrar pedido pendiente", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -680,11 +820,11 @@ private fun DropdownField(
 }
 
 @Composable
-private fun BranchField(value: String, onSelected: (String) -> Unit) {
+private fun BranchField(value: String, options: List<String>, onSelected: (String) -> Unit) {
     DropdownField(
         label = "Sucursal",
         value = value,
-        options = customerBranches.map { it.first },
+        options = options,
         onSelected = onSelected
     )
 }

@@ -37,6 +37,8 @@ import org.jetbrains.compose.resources.painterResource
 // Imports de red
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
+import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 internal val Navy = Color(0xFF143D58)
 internal val Background = Color(0xFFF1F8FA)
@@ -50,25 +52,35 @@ private val InventoryHeaders = listOf("TALLA", "PRECIO", "MASTER", "STOCK")
 
 @Composable
 fun DashboardScreen(
-    onOrderSelected: (String) -> Unit = {},
+    refreshKey: Int = 0,
+    onOrderSelected: (Order) -> Unit = {},
     onNewOrder: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
 
     val dashboardRepository = remember { DashboardRepository() }
+    val orderRepository = remember { OrderRepository() }
 
     var inventarioList by remember { mutableStateOf<List<ArticuloInventario>>(emptyList()) }
     var isLoadingInventario by remember { mutableStateOf(true) }
     var errorMensaje by remember { mutableStateOf<String?>(null) }
+    var orderItems by remember { mutableStateOf<List<Order>>(emptyList()) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshKey) {
         val resultado = dashboardRepository.obtenerInventario()
         isLoadingInventario = false
 
         resultado.fold(
             onSuccess = { datos -> inventarioList = datos },
             onFailure = { error -> errorMensaje = error.message }
+        )
+    }
+
+    LaunchedEffect(refreshKey) {
+        orderRepository.getOrders().fold(
+            onSuccess = { response -> orderItems = response.map(::toOrder) },
+            onFailure = { errorMensaje = it.message }
         )
     }
 
@@ -117,8 +129,8 @@ fun DashboardScreen(
                         Spacer(Modifier.height(8.dp))
                     }
 
-                    items(orders) { order ->
-                        OrderCard(order, onClick = { onOrderSelected(order.number) })
+                    items(orderItems) { order ->
+                        OrderCard(order, onClick = { onOrderSelected(order) })
                         Spacer(Modifier.height(10.dp))
                     }
 
@@ -134,10 +146,29 @@ fun DashboardScreen(
                             textAlign = TextAlign.Center
                         )
                     }
+
                 }
             }
+
         }
     }
+}
+
+private fun toOrder(response: OrderResponse): Order {
+    val clientName = response.client?.name ?: "Cliente ${response.clientId ?: "sin asignar"}"
+    return Order(
+        number = "#${response.id}",
+        client = clientName,
+        total = "$${response.total}",
+        items = "${response.lines.size} Items",
+        status = if (response.status == 1) "PENDIENTE" else "ESTATUS ${response.status}",
+        statusColor = if (response.status == 1) Color(0xFFFFA800) else Color(0xFF367CF4),
+        elapsed = "Fecha ${response.date}",
+        accent = if (response.status == 1) Color(0xFFFFA000) else Color(0xFF367CF4),
+        totalKg = "${response.totalKg} kg",
+        products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) }
+        ,id = response.id
+    )
 }
 
 @Composable
@@ -354,6 +385,7 @@ data class Order(
     val accent: Color,
     val totalKg: String = "0 kg",
     val products: List<OrderProduct> = emptyList()
+    ,val id: Int = 0
 )
 
 val orders = listOf(
