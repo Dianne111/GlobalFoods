@@ -93,7 +93,6 @@ private data class NewOrderFormState(
     val street: String = "",
     val neighborhood: String = "",
     val postalCode: String = "",
-    val references: String = "",
     val deliveryDate: String = millisToDate(currentDateMillis()),
     val notes: String = "",
     val shipping: String = "",
@@ -104,7 +103,7 @@ private data class NewOrderFormState(
         get() = quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true } ||
             client.isNotBlank() || phone.isNotBlank() || branch.isNotBlank() ||
             address.isNotBlank() || street.isNotBlank() || neighborhood.isNotBlank() ||
-            postalCode.isNotBlank() || references.isNotBlank() || deliveryDate.isNotBlank() ||
+            postalCode.isNotBlank() || deliveryDate.isNotBlank() ||
             notes.isNotBlank() || shipping.isNotBlank()
 }
 
@@ -649,9 +648,8 @@ private fun DetailsStep(
                     fontSize = 12.sp
                 )
             }
-            FormField("Referencias", form.references, { onFormChange(form.copy(references = it)) }, singleLine = false)
             DateField(form.deliveryDate, onClick = onDatePicker)
-            FormField("Notas opcionales", form.notes, { onFormChange(form.copy(notes = it)) }, singleLine = false)
+            FormField("Observaciones", form.notes, { onFormChange(form.copy(notes = it)) }, singleLine = false)
             FormField("Costo de envío", form.shipping, { onFormChange(form.copy(shipping = it)) }, KeyboardType.Decimal)
             val hasProducts = form.quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true }
             val hasLocation = form.deliveryMode == "Recolección" ||
