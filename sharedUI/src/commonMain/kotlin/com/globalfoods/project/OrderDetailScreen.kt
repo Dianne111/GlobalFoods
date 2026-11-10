@@ -196,7 +196,9 @@ fun OrderDetailScreen(
                             }
                             OrderDetailField("Dirección de entrega", address)
                         }
-                        OrderDetailField("Referencias", delivery?.references, "Sin referencias registradas")
+                        delivery?.references?.takeIf { it.isNotBlank() }?.let {
+                            OrderDetailField("Referencias", it)
+                        }
                         OrderDetailField("Observaciones", observations.notes, "Sin observaciones")
                         OrderDetailField("Costo de envío", delivery?.shippingCost?.let { "$$it" })
                     }
