@@ -513,7 +513,13 @@ private fun DetailsStep(
                         )
                     }
                 )
-                FormField("Celular", form.phone, { onFormChange(form.copy(phone = it)) }, KeyboardType.Phone)
+                FormField(
+                    label = "Celular",
+                    value = form.phone,
+                    onValueChange = { onFormChange(form.copy(phone = it)) },
+                    keyboardType = KeyboardType.Phone,
+                    readOnly = form.clientType == "Cliente registrado"
+                )
             }
             Spacer(Modifier.height(10.dp))
             Text("RESUMEN DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
@@ -1020,7 +1026,8 @@ private fun FormField(
     value: String,
     onValueChange: (String) -> Unit,
     keyboardType: KeyboardType = KeyboardType.Text,
-    singleLine: Boolean = true
+    singleLine: Boolean = true,
+    readOnly: Boolean = false
 ) {
     OutlinedTextField(
         value = value,
@@ -1028,6 +1035,7 @@ private fun FormField(
         label = { Text(label) },
         modifier = Modifier.fillMaxWidth(),
         singleLine = singleLine,
+        readOnly = readOnly,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         colors = outlinedFieldColors()
     )
