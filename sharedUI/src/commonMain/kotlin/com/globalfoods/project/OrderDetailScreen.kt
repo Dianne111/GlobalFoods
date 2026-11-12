@@ -1,12 +1,14 @@
 package com.globalfoods.project
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,6 +37,8 @@ fun OrderDetailScreen(
     onDeleted: () -> Unit
 ) {
     val repository = remember { OrderRepository() }
+    val openAddress = rememberAddressLauncher()
+    var mapError by remember(order.id) { mutableStateOf<String?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -91,7 +96,7 @@ fun OrderDetailScreen(
         isLoading = false
     }
 
-    val summary = remember(order, response) { response?.let(::toOrder) ?: order }
+    val summary = remember(order, response) { response?.let { toOrder(it) } ?: order }
     val observations = remember(response?.notes) { OrderObservations.decode(response?.notes) }
     val delivery = observations.delivery
     val clientName = delivery?.clientName?.takeIf { it.isNotBlank() }
@@ -232,7 +237,15 @@ fun OrderDetailScreen(
                             if (response?.branchId != null || !branchName.isNullOrBlank()) {
                                 OrderDetailField("Sucursal", branchName)
                             }
-                            OrderDetailField("Dirección de entrega", address)
+                            OrderAddressField(address) { destination ->
+                                mapError = null
+                                if (!openAddress(destination)) {
+                                    mapError = "No se pudo abrir la dirección. Revisa las aplicaciones de mapas o el navegador."
+                                }
+                            }
+                            mapError?.let { message ->
+                                Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                            }
                         }
                         delivery?.references?.takeIf { it.isNotBlank() }?.let {
                             OrderDetailField("Referencias", it)
@@ -296,6 +309,37 @@ fun OrderDetailScreen(
                     enabled = !isDeleting,
                     colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
                 ) { Text("Eliminar pedido") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrderAddressField(address: String?, onOpenAddress: (String) -> Unit) {
+    val destination = address?.trim().orEmpty()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(
+                enabled = destination.isNotEmpty(),
+                onClickLabel = "Abrir dirección en mapas",
+                role = Role.Button,
+                onClick = { onOpenAddress(destination) }
+            )
+            .padding(vertical = 4.dp)
+    ) {
+        Text("Dirección de entrega", color = Gray, fontSize = 12.sp)
+        if (destination.isEmpty()) {
+            Text("Sin dato registrado", color = Navy, fontSize = 14.sp)
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = Color(0xFF168BC1))
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(destination, color = Color(0xFF168BC1), fontSize = 14.sp)
+                    Text("Abrir en mapas", color = Gray, fontSize = 12.sp)
+                }
             }
         }
     }

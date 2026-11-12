@@ -37,6 +37,7 @@ import org.jetbrains.compose.resources.painterResource
 // Imports de red
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
+import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
@@ -67,6 +68,8 @@ fun DashboardScreen(
     var isLoadingInventario by remember { mutableStateOf(true) }
     var errorMensaje by remember { mutableStateOf<String?>(null) }
     var orderItems by remember { mutableStateOf<List<Order>>(emptyList()) }
+    var orderError by remember { mutableStateOf<String?>(null) }
+    var ordersReloadKey by remember { mutableStateOf(0) }
 
     LaunchedEffect(refreshKey) {
         val resultado = dashboardRepository.obtenerInventario()
@@ -78,10 +81,26 @@ fun DashboardScreen(
         )
     }
 
-    LaunchedEffect(refreshKey) {
+    LaunchedEffect(refreshKey, ordersReloadKey) {
+        orderError = null
         orderRepository.getOrders().fold(
-            onSuccess = { response -> orderItems = response.map(::toOrder) },
-            onFailure = { errorMensaje = it.message }
+            onSuccess = { response ->
+                orderItems = response.map { toOrder(it) }
+                val needsClients = response.any {
+                    it.clientId != null && it.client?.name.isNullOrBlank() &&
+                        OrderObservations.decode(it.notes).delivery?.clientName.isNullOrBlank()
+                }
+                if (needsClients) {
+                    orderRepository.getClients().fold(
+                        onSuccess = { clients ->
+                            val clientsById = clients.associateBy { it.id }
+                            orderItems = response.map { toOrder(it, clientsById) }
+                        },
+                        onFailure = { orderError = "No se pudieron cargar los nombres de los clientes." }
+                    )
+                }
+            },
+            onFailure = { orderError = "No se pudieron cargar los pedidos." }
         )
     }
 
@@ -130,6 +149,15 @@ fun DashboardScreen(
                         Spacer(Modifier.height(8.dp))
                     }
 
+                    orderError?.let { message ->
+                        item {
+                            Column {
+                                Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                                TextButton(onClick = { ordersReloadKey++ }) { Text("Reintentar") }
+                            }
+                        }
+                    }
+
                     items(orderItems) { order ->
                         OrderCard(order, onClick = { onOrderSelected(order) })
                         Spacer(Modifier.height(10.dp))
@@ -155,10 +183,13 @@ fun DashboardScreen(
     }
 }
 
-internal fun toOrder(response: OrderResponse): Order {
+internal fun toOrder(response: OrderResponse, clientsById: Map<Int, Client> = emptyMap()): Order {
+    val client = response.client?.takeIf { it.name.isNotBlank() }
+        ?: response.clientId?.let { clientsById[it] }
+        ?: response.client
     val clientName = OrderObservations.decode(response.notes).delivery?.clientName?.takeIf { it.isNotBlank() }
-        ?: response.client?.name?.takeIf { it.isNotBlank() }
-        ?: "Cliente ${response.clientId ?: "sin asignar"}"
+        ?: client?.name?.takeIf { it.isNotBlank() }
+        ?: "Nombre no disponible"
     return Order(
         number = "#${response.id}",
         client = clientName,
@@ -171,7 +202,7 @@ internal fun toOrder(response: OrderResponse): Order {
         totalKg = "${response.totalKg} kg",
         products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) },
         id = response.id,
-        response = response
+        response = response.copy(client = client)
     )
 }
 
