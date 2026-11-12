@@ -10,6 +10,7 @@ import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 
 class OrderRepository {
     private val baseUrl = "https://api.globalfoodsmexico.com/api"
@@ -56,6 +57,8 @@ class OrderRepository {
     private suspend fun <T> request(block: suspend () -> T): Result<T> =
         try {
             Result.success(block())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
             Result.failure(Exception(e.message ?: "Error de comunicación con el servidor", e))
         }

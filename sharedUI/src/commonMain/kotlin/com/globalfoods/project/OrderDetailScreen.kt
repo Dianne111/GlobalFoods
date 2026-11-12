@@ -40,37 +40,64 @@ fun OrderDetailScreen(
     var response by remember(order.id) { mutableStateOf(order.response) }
     var linkedClient by remember(order.id) { mutableStateOf<Client?>(null) }
     var linkedBranch by remember(order.id) { mutableStateOf<Branch?>(null) }
+    var isLoading by remember(order.id) { mutableStateOf(false) }
+    var loadError by remember(order.id) { mutableStateOf<String?>(null) }
+    var reloadKey by remember(order.id) { mutableStateOf(0) }
 
-    LaunchedEffect(order.id) {
+    LaunchedEffect(order.id, reloadKey) {
         if (order.id <= 0) return@LaunchedEffect
-        val detail = repository.getOrder(order.id).getOrNull() ?: order.response ?: return@LaunchedEffect
+        isLoading = true
+        loadError = null
+        val detailResult = repository.getOrder(order.id)
+        val detail = detailResult.getOrNull() ?: response
+        if (detailResult.isFailure) {
+            loadError = "No se pudo actualizar la información del pedido."
+        }
+        if (detail == null) {
+            isLoading = false
+            return@LaunchedEffect
+        }
         response = detail
         val delivery = OrderObservations.decode(detail.notes).delivery
         val clientId = detail.clientId ?: detail.client?.id
-        val listClient = order.response?.client?.takeIf { it.id == clientId }
-        linkedClient = listClient
-        if (clientId != null && delivery == null && detail.client?.name.isNullOrBlank() && listClient?.name.isNullOrBlank()) {
-            linkedClient = repository.getClients().getOrNull()?.firstOrNull { it.id == clientId }
+        val embeddedClient = detail.client?.takeIf { it.id == clientId }
+            ?: order.response?.client?.takeIf { it.id == clientId }
+        linkedClient = embeddedClient
+        linkedBranch = null
+        if (clientId != null && delivery == null &&
+            (embeddedClient?.name.isNullOrBlank() || embeddedClient.phone.isBlank())
+        ) {
+            val clientsResult = repository.getClients()
+            val client = clientsResult.getOrNull()?.firstOrNull { it.id == clientId }
+            linkedClient = client ?: embeddedClient
+            if (clientsResult.isFailure) {
+                loadError = "No se pudieron cargar los datos del cliente."
+            }
         }
         val branchId = detail.branchId
         if (branchId != null && delivery?.address.isNullOrBlank()) {
-            val branch = detail.client?.branches?.firstOrNull { it.id == branchId }
-                ?: linkedClient?.branches?.firstOrNull { it.id == branchId }
+            val branch = linkedClient?.branches?.firstOrNull { it.id == branchId && it.clientId == clientId }
             linkedBranch = branch
             if (clientId != null && branch?.address.isNullOrBlank()) {
-                linkedBranch = repository.getBranches(clientId).getOrNull()?.firstOrNull { it.id == branchId } ?: branch
+                val branchesResult = repository.getBranches(clientId)
+                linkedBranch = branchesResult.getOrNull()?.firstOrNull {
+                    it.id == branchId && it.clientId == clientId
+                } ?: branch
+                if (branchesResult.isFailure) {
+                    loadError = "No se pudieron cargar los datos de la sucursal."
+                }
             }
         }
+        isLoading = false
     }
 
     val summary = remember(order, response) { response?.let(::toOrder) ?: order }
     val observations = remember(response?.notes) { OrderObservations.decode(response?.notes) }
     val delivery = observations.delivery
     val clientName = delivery?.clientName?.takeIf { it.isNotBlank() }
-        ?: response?.client?.name?.takeIf { it.isNotBlank() }
         ?: linkedClient?.name?.takeIf { it.isNotBlank() }
         ?: summary.client
-    val phone = delivery?.phone ?: response?.client?.phone?.takeIf { it.isNotBlank() } ?: linkedClient?.phone
+    val phone = delivery?.phone ?: linkedClient?.phone
     val branchName = delivery?.branchName?.takeIf { it.isNotBlank() } ?: linkedBranch?.name
     val address = delivery?.address?.takeIf { it.isNotBlank() } ?: linkedBranch?.address
     val isPickup = delivery?.method == "Recolección"
@@ -101,6 +128,19 @@ fun OrderDetailScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (isLoading) {
+                item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Green) }
+            }
+            loadError?.let { message ->
+                item {
+                    Column {
+                        Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                        TextButton(onClick = { reloadKey++ }, enabled = !isLoading) {
+                            Text("Reintentar")
+                        }
+                    }
+                }
+            }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -128,10 +168,8 @@ fun OrderDetailScreen(
 
                         Text(text = clientName, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         delivery?.clientType?.let { Text(it, color = Gray, fontSize = 13.sp) }
-                        phone?.takeIf { it.isNotBlank() }?.let {
-                            Spacer(Modifier.height(8.dp))
-                            OrderDetailField("Celular", it)
-                        }
+                        Spacer(Modifier.height(8.dp))
+                        OrderDetailField("Celular", phone)
                         Spacer(modifier = Modifier.height(16.dp))
                         HorizontalDivider(color = Color(0xFFF1F8FA))
                         Spacer(modifier = Modifier.height(16.dp))
