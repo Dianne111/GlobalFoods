@@ -145,8 +145,16 @@ fun DashboardScreen(
                         }
 
                         Spacer(Modifier.height(18.dp))
-                        SectionLabel("PEDIDOS ACTUALES")
-                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SectionLabel("PEDIDOS ACTUALES")
+                            Spacer(Modifier.weight(1f))
+                            // Los estados vienen de la API; este botón vuelve a consultarlos.
+                            TextButton(onClick = { ordersReloadKey++ }) {
+                                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Actualizar", fontSize = 12.sp)
+                            }
+                        }
                     }
 
                     orderError?.let { message ->
@@ -195,10 +203,10 @@ internal fun toOrder(response: OrderResponse, clientsById: Map<Int, Client> = em
         client = clientName,
         total = "$${response.total}",
         items = "${response.lines.size} Items",
-        status = if (response.status == 1) "PENDIENTE" else "ESTATUS ${response.status}",
-        statusColor = if (response.status == 1) Color(0xFFFFA800) else Color(0xFF367CF4),
+        status = statusLabel(response.status),
+        statusColor = statusColor(response.status),
         elapsed = "Fecha ${response.date}",
-        accent = if (response.status == 1) Color(0xFFFFA000) else Color(0xFF367CF4),
+        accent = statusColor(response.status),
         totalKg = "${response.totalKg} kg",
         products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) },
         id = response.id,
