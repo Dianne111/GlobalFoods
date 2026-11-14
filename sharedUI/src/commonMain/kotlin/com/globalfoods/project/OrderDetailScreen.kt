@@ -119,21 +119,14 @@ fun OrderDetailScreen(
     Scaffold(
         containerColor = Color(0xFFF1F8FA),
         topBar = {
-            TopAppBar(
-                title = { Text(text = "Detalle del ${order.number}", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver", tint = Color.White)
-                    }
-                },
-                actions = {
-                    // El estado lo cambia almacén/reparto en la API; aquí solo se vuelve a consultar.
-                    IconButton(onClick = { reloadKey++ }, enabled = !isLoading) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = "Actualizar estado", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF143D58))
-            )
+            ScreenHeader(
+                eyebrow = "DETALLE DEL PEDIDO",
+                title = "Pedido ${order.number}",
+                onBack = onNavigateBack
+            ) {
+                // El estado lo cambia almacén/reparto en la API; aquí solo se vuelve a consultar.
+                HeaderIconAction(Icons.Outlined.Refresh, "Actualizar estado", enabled = !isLoading) { reloadKey++ }
+            }
         }
     ) { paddingValues ->
         LazyColumn(
@@ -242,7 +235,7 @@ fun OrderDetailScreen(
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("ENTREGA Y OBSERVACIONES", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        OrderDetailField("Fecha de entrega", formatDeliveryDate(response?.date))
+                        OrderDetailField("Fecha de entrega", formatOrderDate(response?.date))
                         OrderDetailField("Método de entrega", deliveryMethod)
                         if (isPickup) {
                             OrderDetailField("Punto de recolección", "Congeladora Global Foods México")
@@ -381,7 +374,3 @@ private fun OrderDetailField(label: String, value: String?, fallback: String = "
     }
 }
 
-private fun formatDeliveryDate(date: Int?): String? {
-    val digits = date?.toString()?.takeIf { it.length == 8 && it.all(Char::isDigit) } ?: return null
-    return "${digits.substring(6, 8)}/${digits.substring(4, 6)}/${digits.substring(0, 4)}"
-}

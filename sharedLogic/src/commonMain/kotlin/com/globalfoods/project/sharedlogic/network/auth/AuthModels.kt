@@ -13,7 +13,9 @@ data class LoginResponse(
     val tokenType: String? = null,
     val accessToken: String,
     val expiresIn: Int? = null,
-    val nombre: String
+    val nombre: String,
+    /** Rol del usuario: Administrador, Empleado, Reporte o Cliente. */
+    val tipoUsuario: String? = null
 )
 
 // Nuevo modelo para leer el mensaje de error del backend

@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.globalfoods.project.sharedlogic.network.auth.AuthRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 @Composable
@@ -18,6 +19,29 @@ fun App() {
         var refreshDashboard by remember { mutableStateOf(0) }
         // Pedido que se está editando (tomado del detalle más reciente)
         var pedidoEnEdicion by remember { mutableStateOf<OrderResponse?>(null) }
+        // Pantalla de la barra inferior a la que se regresa al salir del detalle ("Dashboard" o "Pedidos")
+        var pantallaLista by remember { mutableStateOf("Dashboard") }
+
+        val abrirPestana: (MainTab) -> Unit = { tab ->
+            when (tab) {
+                MainTab.Inicio -> pantallaActual = "Dashboard"
+                MainTab.Pedidos -> pantallaActual = "Pedidos"
+                MainTab.Clientes -> Unit // Pendiente: se desarrolla en su propia rama.
+            }
+        }
+        val cerrarSesion: () -> Unit = {
+            // Limpia token, nombre y rol para que el siguiente usuario no herede la sesión.
+            AuthRepository().cerrarSesion()
+            pedidoSeleccionado = null
+            pedidoEnEdicion = null
+            pantallaLista = "Dashboard"
+            pantallaActual = "Login"
+        }
+        val abrirDetalle: (Order, String) -> Unit = { order, origen ->
+            pedidoSeleccionado = order
+            pantallaLista = origen
+            pantallaActual = "Detalles"
+        }
 
         when (pantallaActual) {
             "Splash" -> {
@@ -35,15 +59,17 @@ fun App() {
             "Dashboard" -> {
                 DashboardScreen(
                     refreshKey = refreshDashboard,
-                    onOrderSelected = { order ->
-                        pedidoSeleccionado = order
-                        pantallaActual = "Detalles"
-                    },
+                    onOrderSelected = { order -> abrirDetalle(order, "Dashboard") },
                     onNewOrder = { pantallaActual = "NuevoPedido" },
-                    onLogout = {
-                        pedidoSeleccionado = null
-                        pantallaActual = "Login"
-                    }
+                    onLogout = cerrarSesion,
+                    onTabSelected = abrirPestana
+                )
+            }
+            "Pedidos" -> {
+                OrdersScreen(
+                    refreshKey = refreshDashboard,
+                    onOrderSelected = { order -> abrirDetalle(order, "Pedidos") },
+                    onTabSelected = abrirPestana
                 )
             }
             "NuevoPedido" -> {
@@ -53,10 +79,7 @@ fun App() {
                         refreshDashboard++
                         pantallaActual = "Dashboard"
                     },
-                    onLogout = {
-                        pedidoSeleccionado = null
-                        pantallaActual = "Login"
-                    }
+                    onLogout = cerrarSesion
                 )
             }
             "Detalles" -> {
@@ -66,11 +89,11 @@ fun App() {
                     OrderDetailScreen(
                         order = order,
                         onNavigateBack = {
-                            pantallaActual = "Dashboard"
+                            pantallaActual = pantallaLista
                         },
                         onDeleted = {
                             refreshDashboard++
-                            pantallaActual = "Dashboard"
+                            pantallaActual = pantallaLista
                         },
                         onEdit = { response ->
                             pedidoEnEdicion = response
@@ -78,7 +101,7 @@ fun App() {
                         }
                     )
                 } else {
-                    pantallaActual = "Dashboard"
+                    pantallaActual = pantallaLista
                 }
             }
             "EditarPedido" -> {
@@ -98,11 +121,7 @@ fun App() {
                             refreshDashboard++
                             pantallaActual = "Detalles"
                         },
-                        onLogout = {
-                            pedidoSeleccionado = null
-                            pedidoEnEdicion = null
-                            pantallaActual = "Login"
-                        }
+                        onLogout = cerrarSesion
                     )
                 } else {
                     pantallaActual = "Detalles"
