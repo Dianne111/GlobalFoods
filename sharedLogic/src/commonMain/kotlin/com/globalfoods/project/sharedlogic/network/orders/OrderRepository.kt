@@ -6,6 +6,7 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
@@ -26,17 +27,7 @@ class OrderRepository {
     suspend fun getOrder(id: Int): Result<OrderResponse> = request { globalFoodsClient.get("$baseUrl/pedidos/$id").body() }
 
     suspend fun createOrder(order: OrderRequest): Result<OrderResponse> = request {
-        require(order.date > 0) { "La fecha del pedido no es válida" }
-        require(order.totalKg > 0.0) { "El total de kilos debe ser mayor que cero" }
-        require(order.total > 0.0) { "El total del pedido debe ser mayor que cero" }
-        require(order.lines.isNotEmpty()) { "El pedido debe contener al menos una línea" }
-        require(order.lines.all { it.productCode > 0 }) {
-            "El inventario no proporcionó un CodigoProducto válido"
-        }
-        require(order.lines.all { it.quantity > 0.0 && it.price >= 0.0 && it.subtotal >= 0.0 }) {
-            "El pedido contiene una línea inválida"
-        }
-
+        validate(order)
         val response = globalFoodsClient.post("$baseUrl/pedidos") {
             contentType(ContentType.Application.Json)
             setBody(order)
@@ -46,6 +37,42 @@ class OrderRepository {
         }
         response.body<OrderResponse>().also {
             require(it.id > 0) { "La API no devolvió el Id del pedido creado" }
+        }
+    }
+
+    /**
+     * Reemplaza el pedido [id] (encabezado y líneas) con [order].
+     * Devuelve el pedido actualizado si la API lo incluye en la respuesta; si no, null.
+     */
+    suspend fun updateOrder(id: Int, order: OrderRequest): Result<OrderResponse?> = request {
+        require(id > 0) { "El pedido a editar no tiene un Id válido" }
+        validate(order)
+        val response = globalFoodsClient.put("$baseUrl/pedidos/$id") {
+            contentType(ContentType.Application.Json)
+            setBody(order)
+        }
+        if (!response.status.isSuccess()) {
+            error("La API rechazó los cambios del pedido: HTTP ${response.status.value}")
+        }
+        try {
+            response.body<OrderResponse>().takeIf { it.id == id }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun validate(order: OrderRequest) {
+        require(order.date > 0) { "La fecha del pedido no es válida" }
+        require(order.totalKg > 0.0) { "El total de kilos debe ser mayor que cero" }
+        require(order.total > 0.0) { "El total del pedido debe ser mayor que cero" }
+        require(order.lines.isNotEmpty()) { "El pedido debe contener al menos una línea" }
+        require(order.lines.all { it.productCode > 0 }) {
+            "El inventario no proporcionó un CodigoProducto válido"
+        }
+        require(order.lines.all { it.quantity > 0.0 && it.price >= 0.0 && it.subtotal >= 0.0 }) {
+            "El pedido contiene una línea inválida"
         }
     }
 
