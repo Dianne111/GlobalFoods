@@ -2,6 +2,7 @@ package com.globalfoods.project.sharedlogic.network.auth
 
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
 import com.globalfoods.project.sharedlogic.network.core.sessionNombreUsuario
+import com.globalfoods.project.sharedlogic.network.core.sessionIdCliente
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.core.sessionToken
 import io.ktor.client.call.body
@@ -26,6 +27,7 @@ class AuthRepository {
                 sessionToken = loginResponse.accessToken
                 sessionNombreUsuario = loginResponse.nombre
                 sessionRol = UserRole.fromApi(loginResponse.tipoUsuario)
+                sessionIdCliente = loginResponse.idCliente
 
                 Result.success(loginResponse)
             } else {
@@ -49,6 +51,7 @@ class AuthRepository {
         sessionToken = null
         sessionNombreUsuario = null
         sessionRol = UserRole.Administrator
+        sessionIdCliente = null
     }
 
     fun haySesion(): Boolean = sessionToken != null

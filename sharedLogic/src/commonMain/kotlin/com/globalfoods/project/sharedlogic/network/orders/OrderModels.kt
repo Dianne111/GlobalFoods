@@ -38,6 +38,16 @@ data class Branch(
     @SerialName("Estatus") val status: Int = 1
 )
 
+/** Cuerpo de POST /api/sucursales-clientes y PUT /api/sucursales-clientes/{id} (mismo formato que la web). */
+@Serializable
+data class BranchRequest(
+    @SerialName("idCliente") val clientId: Int,
+    @SerialName("NombreSucursal") val name: String,
+    @SerialName("Direccion") val address: String,
+    @SerialName("Telefono") val phone: String,
+    @SerialName("Estatus") val status: Int = 1
+)
+
 @Serializable
 data class OrderRequest(
     @SerialName("IdCliente") val clientId: Int?,

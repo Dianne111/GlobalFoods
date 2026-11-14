@@ -45,9 +45,9 @@ class OrdersFilterTest {
 
     @Test
     fun showsTheTabsAllowedForEachRole() {
-        assertEquals(MainTab.entries, tabsFor(UserRole.Administrator))
-        assertEquals(MainTab.entries, tabsFor(UserRole.Employee))
-        assertEquals(listOf(MainTab.Inicio, MainTab.Pedidos), tabsFor(UserRole.Client))
+        assertEquals(listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Clientes), tabsFor(UserRole.Administrator))
+        assertEquals(listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Clientes), tabsFor(UserRole.Employee))
+        assertEquals(listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Sucursales), tabsFor(UserRole.Client))
         assertEquals(listOf(MainTab.Inicio), tabsFor(UserRole.Reports))
     }
 

@@ -65,6 +65,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import com.globalfoods.project.sharedlogic.network.auth.UserRole
+import com.globalfoods.project.sharedlogic.network.core.sessionIdCliente
+import com.globalfoods.project.sharedlogic.network.core.sessionNombreUsuario
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
 import com.globalfoods.project.sharedlogic.network.orders.Client
@@ -112,6 +116,33 @@ internal data class NewOrderFormState(
             address.isNotBlank() || street.isNotBlank() || neighborhood.isNotBlank() ||
             postalCode.isNotBlank() || deliveryDate.isNotBlank() ||
             notes.isNotBlank() || shipping.isNotBlank()
+}
+
+internal const val OUT_OF_STOCK_MESSAGE =
+    "No se cuenta con disponibilidad de la cantidad solicitada. Favor de comunicarse con su asesor de ventas."
+
+/** true si algún producto pide más kilos de los disponibles en inventario. */
+internal fun exceedsStock(quantities: Map<String, String>, products: List<ArticuloInventario>): Boolean =
+    products.any { (quantities[it.talla]?.toDoubleOrNull() ?: 0.0) > it.cantidadKg }
+
+/**
+ * Formulario inicial de un pedido nuevo. Para un cliente queda fijo su propio cliente.
+ * Con [template] ("Repetir último pedido") se copian productos y entrega, pero la fecha vuelve a hoy.
+ */
+internal fun initialNewOrderForm(
+    isClient: Boolean,
+    clientId: Int?,
+    userName: String?,
+    template: OrderResponse?
+): NewOrderFormState {
+    val base = template?.let(::formFromOrder)?.copy(deliveryDate = NewOrderFormState().deliveryDate)
+        ?: NewOrderFormState()
+    if (!isClient) return base
+    return base.copy(
+        clientType = "Cliente registrado",
+        clientId = clientId,
+        client = base.client.ifBlank { userName.orEmpty() }
+    )
 }
 
 /** Reconstruye el formulario a partir de un pedido ya registrado para poder editarlo. */
@@ -196,10 +227,17 @@ fun NewOrderScreen(
     onLogout: () -> Unit,
     onOrderCreated: () -> Unit = {},
     orderToEdit: OrderResponse? = null,
-    onOrderUpdated: (OrderResponse?) -> Unit = {}
+    onOrderUpdated: (OrderResponse?) -> Unit = {},
+    /** Pedido anterior para "Repetir último pedido": precarga productos y entrega, pero se registra como nuevo. */
+    template: OrderResponse? = null
 ) {
     val isEditing = orderToEdit != null
-    val initialForm = remember(orderToEdit) { orderToEdit?.let(::formFromOrder) ?: NewOrderFormState() }
+    // El cliente pide para sí mismo: no elige cliente ni ve existencias.
+    val isClient = sessionRol == UserRole.Client
+    val initialForm = remember(orderToEdit, template) {
+        orderToEdit?.let(::formFromOrder)
+            ?: initialNewOrderForm(isClient, sessionIdCliente, sessionNombreUsuario, template)
+    }
     val repository = remember { DashboardRepository() }
     val orderRepository = remember { OrderRepository() }
     var rawInventory by remember { mutableStateOf<List<ArticuloInventario>>(emptyList()) }
@@ -228,6 +266,8 @@ fun NewOrderScreen(
     }
 
     LaunchedEffect(Unit) {
+        // El catálogo de clientes solo lo usan asesoras y administradores.
+        if (isClient) return@LaunchedEffect
         orderRepository.getClients().fold(
             onSuccess = { loaded ->
                 clients = loaded
@@ -259,6 +299,13 @@ fun NewOrderScreen(
                         // Al editar se conserva la sucursal original aunque ya no esté activa.
                         selectedClientBranches = branches.filter { it.status == 1 || it.id == form.branchId }
                         loadingBranches = false
+                        // Al repetir un pedido, la sucursal original pudo haberse eliminado.
+                        val current = form
+                        if (!isEditing && current.branchId != null &&
+                            selectedClientBranches.none { it.id == current.branchId }
+                        ) {
+                            form = current.copy(branchId = null, branch = "", address = "")
+                        }
                     }
                 },
                 onFailure = {
@@ -281,7 +328,8 @@ fun NewOrderScreen(
         when (step) {
             NewOrderStep.Catalog, NewOrderStep.Summary -> step = NewOrderStep.Details
             NewOrderStep.Details -> {
-                val hasChanges = if (isEditing) form != initialForm else form.hasCapturedData
+                // Solo pregunta si se capturó algo respecto a como se abrió la pantalla.
+                val hasChanges = form != initialForm
                 if (hasChanges) {
                     showDiscardDialog = true
                 } else {
@@ -361,6 +409,7 @@ fun NewOrderScreen(
                 loading = loading,
                 error = error,
                 quantities = form.quantities,
+                showStock = sessionRol.canSeeInventory,
                 onQuantityChange = { talla, value ->
                     form = form.copy(quantities = form.quantities + (talla to value))
                 },
@@ -369,6 +418,7 @@ fun NewOrderScreen(
             )
             NewOrderStep.Details -> DetailsStep(
                 form = form,
+                isClient = isClient,
                 clients = clients,
                 selectedClientBranches = selectedClientBranches,
                 loadingBranches = loadingBranches,
@@ -395,6 +445,10 @@ fun NewOrderScreen(
                     val date = form.deliveryDate.split('/').let {
                         if (it.size == 3) "${it[2]}${it[1]}${it[0]}".toIntOrNull() else null
                     } ?: 0
+                    if (exceedsStock(form.quantities, products)) {
+                        saveError = OUT_OF_STOCK_MESSAGE
+                        return@SummaryStep
+                    }
                     val invalidProductCode = products.firstOrNull { it.codigoProducto <= 0 }
                     if (invalidProductCode != null) {
                         saveError = "El producto ${invalidProductCode.talla} no tiene un CodigoProducto válido en el inventario."
@@ -539,6 +593,7 @@ private fun CatalogStep(
     loading: Boolean,
     error: String?,
     quantities: Map<String, String>,
+    showStock: Boolean,
     onQuantityChange: (String, String) -> Unit,
     onNext: () -> Unit,
     modifier: Modifier
@@ -553,8 +608,10 @@ private fun CatalogStep(
             inventory.isEmpty() -> Text("No hay productos disponibles.", color = Gray)
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
                 items(inventory, key = { it.talla }) { product ->
-                    CatalogProductCard(product, quantities[product.talla] ?: "0") {
-                        onQuantityChange(product.talla, normalizeQuantity(it, product.cantidadKg))
+                    CatalogProductCard(product, quantities[product.talla] ?: "0", showStock) {
+                        // Sin ver existencias no se limita la cantidad; se valida al registrar el pedido.
+                        val maximum = if (showStock) product.cantidadKg else Double.MAX_VALUE
+                        onQuantityChange(product.talla, normalizeQuantity(it, maximum))
                     }
                 }
             }
@@ -569,7 +626,12 @@ private fun CatalogStep(
 }
 
 @Composable
-private fun CatalogProductCard(product: ArticuloInventario, quantity: String, onQuantityChange: (String) -> Unit) {
+private fun CatalogProductCard(
+    product: ArticuloInventario,
+    quantity: String,
+    showStock: Boolean,
+    onQuantityChange: (String) -> Unit
+) {
     Card(
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -579,7 +641,9 @@ private fun CatalogProductCard(product: ArticuloInventario, quantity: String, on
             Column(Modifier.weight(1f)) {
                 Text(product.talla, color = Navy, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Text("Precio: $${product.precio} / kg", color = Color.Black, fontSize = 14.sp)
-                Text("Disponible: ${product.cantidadKg} kg", color = Gray, fontSize = 11.sp)
+                if (showStock) {
+                    Text("Disponible: ${product.cantidadKg} kg", color = Gray, fontSize = 11.sp)
+                }
             }
             OutlinedTextField(
                 value = quantity,
@@ -596,6 +660,7 @@ private fun CatalogProductCard(product: ArticuloInventario, quantity: String, on
 @Composable
 private fun DetailsStep(
     form: NewOrderFormState,
+    isClient: Boolean,
     clients: List<Client>,
     selectedClientBranches: List<Branch>,
     loadingBranches: Boolean,
@@ -610,6 +675,14 @@ private fun DetailsStep(
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("DETALLES DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 22.dp))
+            if (isClient) {
+                if (form.clientId == null) {
+                    Notice("Tu usuario aún no está vinculado a un cliente. Comunícate con tu asesor de ventas.")
+                } else {
+                    Text("Cliente", color = Gray, fontSize = 12.sp)
+                    Text(form.client.ifBlank { "Mi cuenta" }, color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            } else {
             DropdownField(
                 label = "Tipo de cliente",
                 value = form.clientType,
@@ -663,6 +736,7 @@ private fun DetailsStep(
                     keyboardType = KeyboardType.Phone,
                     readOnly = form.clientType == "Cliente registrado"
                 )
+            }
             }
             Spacer(Modifier.height(10.dp))
             Text("RESUMEN DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
@@ -720,7 +794,8 @@ private fun DetailsStep(
                     CircularProgressIndicator(color = Green, modifier = Modifier.size(20.dp))
                 } else if (selectedClientBranches.isEmpty()) {
                     Text(
-                        "La API no devolvió sucursales para este cliente.",
+                        if (isClient) "No tienes sucursales registradas. Agrégalas en la pestaña Sucursales o elige Recolección."
+                        else "La API no devolvió sucursales para este cliente.",
                         color = Color(0xFFB91C1C),
                         fontSize = 12.sp
                     )
