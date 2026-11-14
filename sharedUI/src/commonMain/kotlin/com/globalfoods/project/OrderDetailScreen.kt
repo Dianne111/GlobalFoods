@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +29,7 @@ import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
+import com.globalfoods.project.sharedlogic.network.orders.orderStatus
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -124,6 +126,12 @@ fun OrderDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver", tint = Color.White)
                     }
                 },
+                actions = {
+                    // El estado lo cambia almacén/reparto en la API; aquí solo se vuelve a consultar.
+                    IconButton(onClick = { reloadKey++ }, enabled = !isLoading) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = "Actualizar estado", tint = Color.White)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF143D58))
             )
         }
@@ -174,6 +182,9 @@ fun OrderDetailScreen(
                         }
 
                         Text(text = clientName, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(14.dp))
+                        OrderStatusProgress(response?.orderStatus)
+                        Spacer(Modifier.height(14.dp))
                         delivery?.clientType?.let { Text(it, color = Gray, fontSize = 13.sp) }
                         Spacer(Modifier.height(8.dp))
                         OrderDetailField("Celular", phone)
@@ -306,7 +317,7 @@ fun OrderDetailScreen(
             }
 
             item {
-                val editable = response?.takeIf { it.status == 1 }
+                val editable = response?.takeIf { it.orderStatus?.isEditable == true }
                 if (editable != null) {
                     Button(
                         onClick = { onEdit(editable) },
@@ -316,7 +327,7 @@ fun OrderDetailScreen(
                     ) { Text("Editar pedido", fontWeight = FontWeight.Bold) }
                 } else if (response != null) {
                     Text(
-                        "Solo se pueden editar pedidos en estado PENDIENTE.",
+                        "Solo se pueden editar pedidos en estado CREADO.",
                         color = Gray,
                         fontSize = 12.sp
                     )
