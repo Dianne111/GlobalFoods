@@ -83,6 +83,18 @@ data class OrderResponse(
     @SerialName("Cliente") val client: Client? = null
 )
 
+/** El mismo pedido, sin cambios, pero con Estatus Cancelado (para PUT /api/pedidos/{id}). */
+fun cancellationRequest(order: OrderResponse): OrderRequest = OrderRequest(
+    clientId = order.clientId ?: order.client?.id,
+    branchId = order.branchId,
+    date = order.date,
+    totalKg = order.totalKg,
+    total = order.total,
+    status = OrderStatus.Cancelled.code,
+    notes = order.notes,
+    lines = order.lines.map { OrderLineRequest(it.productCode, it.size, it.quantity, it.price, it.subtotal) }
+)
+
 @Serializable
 data class OrderLineResponse(
     @SerialName("Id") val id: Int = 0,

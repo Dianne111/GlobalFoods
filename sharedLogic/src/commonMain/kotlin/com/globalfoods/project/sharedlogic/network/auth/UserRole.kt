@@ -15,7 +15,8 @@ enum class UserRole {
 
     /** El cliente solo agrega y consulta sus pedidos. */
     val canEditOrders: Boolean get() = this == Administrator || this == Employee
-    val canDeleteOrders: Boolean get() = this == Administrator || this == Employee
+    /** Cancelar es una baja lógica (Estatus 5); los pedidos nunca se borran. */
+    val canCancelOrders: Boolean get() = this == Administrator || this == Employee
 
     val canCreateOrders: Boolean get() = this != Reports
 

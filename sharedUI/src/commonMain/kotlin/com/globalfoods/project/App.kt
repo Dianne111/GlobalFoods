@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.globalfoods.project.sharedlogic.network.auth.AuthRepository
 import com.globalfoods.project.sharedlogic.network.auth.UserRole
+import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
@@ -25,12 +26,14 @@ fun App() {
         var pantallaLista by remember { mutableStateOf("Dashboard") }
         // Pedido anterior que se usa como base en "Repetir último pedido"
         var pedidoBase by remember { mutableStateOf<OrderResponse?>(null) }
+        // Cliente abierto desde la pestaña Clientes (administrador/empleado)
+        var clienteSeleccionado by remember { mutableStateOf<AdminClient?>(null) }
 
         val abrirPestana: (MainTab) -> Unit = { tab ->
             when (tab) {
                 MainTab.Inicio -> pantallaActual = "Dashboard"
                 MainTab.Pedidos -> pantallaActual = "Pedidos"
-                MainTab.Clientes -> Unit // Pendiente: se desarrolla en su propia rama.
+                MainTab.Clientes -> pantallaActual = "Clientes"
                 MainTab.Sucursales -> pantallaActual = "Sucursales"
             }
         }
@@ -40,6 +43,7 @@ fun App() {
             pedidoSeleccionado = null
             pedidoEnEdicion = null
             pedidoBase = null
+            clienteSeleccionado = null
             pantallaLista = "Dashboard"
             pantallaActual = "Login"
         }
@@ -95,6 +99,34 @@ fun App() {
             "Sucursales" -> {
                 BranchesScreen(onTabSelected = abrirPestana)
             }
+            "Clientes" -> {
+                ClientsScreen(
+                    refreshKey = refreshDashboard,
+                    onClientSelected = { cliente ->
+                        clienteSeleccionado = cliente
+                        pantallaActual = "DetalleCliente"
+                    },
+                    onTabSelected = abrirPestana
+                )
+            }
+            "DetalleCliente" -> {
+                val cliente = clienteSeleccionado
+                if (cliente != null) {
+                    ClientDetailScreen(
+                        client = cliente,
+                        onBack = { pantallaActual = "Clientes" },
+                        onChanged = { refreshDashboard++ },
+                        onDeactivated = {
+                            clienteSeleccionado = null
+                            refreshDashboard++
+                            pantallaActual = "Clientes"
+                        },
+                        onOrderSelected = { order -> abrirDetalle(order, "DetalleCliente") }
+                    )
+                } else {
+                    pantallaActual = "Clientes"
+                }
+            }
             "Pedidos" -> {
                 OrdersScreen(
                     refreshKey = refreshDashboard,
@@ -126,9 +158,9 @@ fun App() {
                         onNavigateBack = {
                             pantallaActual = pantallaLista
                         },
-                        onDeleted = {
+                        onCancelled = {
+                            // Se queda en el detalle (ya muestra Cancelado); las listas se recargan al volver.
                             refreshDashboard++
-                            pantallaActual = pantallaLista
                         },
                         onEdit = { response ->
                             pedidoEnEdicion = response

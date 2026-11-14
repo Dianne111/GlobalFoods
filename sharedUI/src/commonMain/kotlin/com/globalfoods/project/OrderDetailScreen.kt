@@ -29,6 +29,7 @@ import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
+import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
 import com.globalfoods.project.sharedlogic.network.orders.orderStatus
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import kotlinx.coroutines.launch
@@ -38,14 +39,16 @@ import kotlinx.coroutines.launch
 fun OrderDetailScreen(
     order: Order,
     onNavigateBack: () -> Unit,
-    onDeleted: () -> Unit,
+    /** El pedido se canceló (Estatus 5); se queda en el detalle y se refrescan las listas. */
+    onCancelled: () -> Unit,
     onEdit: (OrderResponse) -> Unit = {}
 ) {
     val repository = remember { OrderRepository() }
     val openAddress = rememberAddressLauncher()
     var mapError by remember(order.id) { mutableStateOf<String?>(null) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var isDeleting by remember { mutableStateOf(false) }
+    var showCancelDialog by remember { mutableStateOf(false) }
+    var isCancelling by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
     var response by remember(order.id) { mutableStateOf(order.response) }
     var linkedClient by remember(order.id) { mutableStateOf<Client?>(null) }
@@ -201,27 +204,44 @@ fun OrderDetailScreen(
                         }
                     }
                 }
-                if (showDeleteDialog) {
+                if (showCancelDialog) {
                     AlertDialog(
-                        onDismissRequest = { showDeleteDialog = false },
-                        title = { Text("Eliminar pedido") },
-                        text = { Text("Esta acción eliminará físicamente el pedido y sus líneas. ¿Deseas continuar?") },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                isDeleting = true
-                                kotlinx.coroutines.MainScope().launch {
-                                    repository.deleteOrder(order.id).fold(
-                                        onSuccess = { onDeleted() },
-                                        onFailure = { isDeleting = false; error = it.message }
-                                    )
-                                }
-                            }) { Text("Eliminar", color = Color(0xFFB91C1C)) }
+                        onDismissRequest = { if (!isCancelling) showCancelDialog = false },
+                        title = { Text("Cancelar pedido") },
+                        text = {
+                            Text(
+                                "El pedido ${order.number} pasará a Cancelado y ya no se surtirá. " +
+                                    "Se conserva en el historial y no se puede reactivar desde la app."
+                            )
                         },
-                        dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancelar") } }
+                        confirmButton = {
+                            TextButton(
+                                enabled = !isCancelling && response != null,
+                                onClick = {
+                                    val current = response ?: return@TextButton
+                                    isCancelling = true
+                                    scope.launch {
+                                        repository.cancelOrder(current).fold(
+                                            onSuccess = { updated ->
+                                                response = updated ?: current.copy(status = OrderStatus.Cancelled.code)
+                                                showCancelDialog = false
+                                                reloadKey++
+                                                onCancelled()
+                                            },
+                                            onFailure = { showCancelDialog = false; error = it.message }
+                                        )
+                                        isCancelling = false
+                                    }
+                                }
+                            ) { Text("Cancelar pedido", color = Color(0xFFB91C1C)) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showCancelDialog = false }, enabled = !isCancelling) { Text("Volver") }
+                        }
                     )
                 }
                 error?.let {
-                    AlertDialog(onDismissRequest = { error = null }, title = { Text("No se pudo eliminar") }, text = { Text(it) }, confirmButton = {
+                    AlertDialog(onDismissRequest = { error = null }, title = { Text("No se pudo cancelar") }, text = { Text(it) }, confirmButton = {
                         TextButton(onClick = { error = null }) { Text("Aceptar") }
                     })
                 }
@@ -310,14 +330,14 @@ fun OrderDetailScreen(
                 }
             }
 
-            // El cliente solo consulta: no ve Editar ni Eliminar.
-            if (sessionRol.canEditOrders || sessionRol.canDeleteOrders) item {
+            // El cliente solo consulta: no ve Editar ni Cancelar.
+            if (sessionRol.canEditOrders || sessionRol.canCancelOrders) item {
                 val editable = response?.takeIf { it.orderStatus?.isEditable == true }
                 if (sessionRol.canEditOrders) {
                     if (editable != null) {
                         Button(
                             onClick = { onEdit(editable) },
-                            enabled = !isLoading && !isDeleting,
+                            enabled = !isLoading && !isCancelling,
                             colors = ButtonDefaults.buttonColors(containerColor = Navy),
                             modifier = Modifier.fillMaxWidth().height(48.dp)
                         ) { Text("Editar pedido", fontWeight = FontWeight.Bold) }
@@ -329,12 +349,12 @@ fun OrderDetailScreen(
                         )
                     }
                 }
-                if (sessionRol.canDeleteOrders) {
+                if (sessionRol.canCancelOrders && response?.orderStatus?.isCancellable == true) {
                     TextButton(
-                        onClick = { showDeleteDialog = true },
-                        enabled = !isDeleting,
+                        onClick = { showCancelDialog = true },
+                        enabled = !isLoading && !isCancelling,
                         colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
-                    ) { Text("Eliminar pedido") }
+                    ) { Text("Cancelar pedido") }
                 }
             }
         }

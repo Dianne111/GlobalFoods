@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,7 +69,7 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
     var reloadKey by remember { mutableStateOf(0) }
     // null = cerrado; Branch con Id 0 = sucursal nueva.
     var editing by remember { mutableStateOf<Branch?>(null) }
-    var toDelete by remember { mutableStateOf<Branch?>(null) }
+    var toDeactivate by remember { mutableStateOf<Branch?>(null) }
     var isSaving by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
 
@@ -89,7 +90,7 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
             action().fold(
                 onSuccess = {
                     editing = null
-                    toDelete = null
+                    toDeactivate = null
                     reloadKey++
                 },
                 onFailure = { actionError = it.message }
@@ -155,7 +156,12 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
                         )
                     }
                     else -> items(branches, key = { it.id }) { branch ->
-                        BranchCard(branch, onEdit = { editing = branch }, onDelete = { toDelete = branch })
+                        BranchCard(
+                            branch,
+                            onEdit = { editing = branch },
+                            onDeactivate = { toDeactivate = branch },
+                            onReactivate = { runAction { repository.setBranchActive(branch, active = true) } }
+                        )
                     }
                 }
                 item { Spacer(Modifier.height(12.dp)) }
@@ -184,17 +190,12 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
         )
     }
 
-    toDelete?.let { branch ->
-        AlertDialog(
-            onDismissRequest = { if (!isSaving) toDelete = null },
-            title = { Text("Eliminar sucursal") },
-            text = { Text("¿Deseas eliminar la sucursal \"${branch.name}\"? Ya no podrás elegirla en tus pedidos.") },
-            confirmButton = {
-                TextButton(onClick = { runAction { repository.deleteBranch(branch.id) } }, enabled = !isSaving) {
-                    Text("Eliminar", color = Color(0xFFB91C1C))
-                }
-            },
-            dismissButton = { TextButton(onClick = { toDelete = null }, enabled = !isSaving) { Text("Cancelar") } }
+    toDeactivate?.let { branch ->
+        BranchDeactivateDialog(
+            branch = branch,
+            saving = isSaving,
+            onConfirm = { runAction { repository.setBranchActive(branch, active = false) } },
+            onDismiss = { toDeactivate = null }
         )
     }
 
@@ -209,7 +210,12 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
 }
 
 @Composable
-private fun BranchCard(branch: Branch, onEdit: () -> Unit, onDelete: () -> Unit) {
+internal fun BranchCard(
+    branch: Branch,
+    onEdit: () -> Unit,
+    onDeactivate: () -> Unit,
+    onReactivate: () -> Unit
+) {
     val active = branch.status == 1
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -241,13 +247,21 @@ private fun BranchCard(branch: Branch, onEdit: () -> Unit, onDelete: () -> Unit)
                 }
             }
             IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, "Editar sucursal", tint = Gray) }
-            IconButton(onClick = onDelete) { Icon(Icons.Outlined.Delete, "Eliminar sucursal", tint = Color(0xFFB91C1C)) }
+            if (active) {
+                IconButton(onClick = onDeactivate) {
+                    Icon(Icons.Outlined.Delete, "Dar de baja la sucursal", tint = Color(0xFFB91C1C))
+                }
+            } else {
+                IconButton(onClick = onReactivate) {
+                    Icon(Icons.Outlined.Restore, "Reactivar sucursal", tint = Green)
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun BranchDialog(
+internal fun BranchDialog(
     branch: Branch,
     saving: Boolean,
     onDismiss: () -> Unit,
@@ -284,6 +298,32 @@ private fun BranchDialog(
         confirmButton = {
             TextButton(onClick = { onSave(name, address, phone) }, enabled = valid && !saving) {
                 Text(if (saving) "Guardando…" else "Guardar")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancelar") } }
+    )
+}
+
+/** Confirmación de la baja lógica de una sucursal (se conserva y se puede reactivar). */
+@Composable
+internal fun BranchDeactivateDialog(
+    branch: Branch,
+    saving: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text("Dar de baja la sucursal") },
+        text = {
+            Text(
+                "\"${branch.name}\" ya no podrá elegirse en pedidos nuevos. " +
+                    "Los pedidos anteriores se conservan y podrás reactivarla cuando quieras."
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !saving) {
+                Text("Dar de baja", color = Color(0xFFB91C1C))
             }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancelar") } }
