@@ -357,8 +357,7 @@ internal fun DashboardNavigation() {
     val items = listOf(
         "INICIO" to Icons.Outlined.Home,
         "PEDIDOS" to Icons.Outlined.ReceiptLong,
-        "CLIENTES" to Icons.Outlined.People,
-        "REPORTES" to Icons.Outlined.BarChart
+        "CLIENTES" to Icons.Outlined.People
     )
     NavigationBar(
         modifier = Modifier.navigationBarsPadding().height(66.dp),
