@@ -27,6 +27,7 @@ import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,7 +35,8 @@ import kotlinx.coroutines.launch
 fun OrderDetailScreen(
     order: Order,
     onNavigateBack: () -> Unit,
-    onDeleted: () -> Unit
+    onDeleted: () -> Unit,
+    onEdit: (OrderResponse) -> Unit = {}
 ) {
     val repository = remember { OrderRepository() }
     val openAddress = rememberAddressLauncher()
@@ -304,6 +306,21 @@ fun OrderDetailScreen(
             }
 
             item {
+                val editable = response?.takeIf { it.status == 1 }
+                if (editable != null) {
+                    Button(
+                        onClick = { onEdit(editable) },
+                        enabled = !isLoading && !isDeleting,
+                        colors = ButtonDefaults.buttonColors(containerColor = Navy),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) { Text("Editar pedido", fontWeight = FontWeight.Bold) }
+                } else if (response != null) {
+                    Text(
+                        "Solo se pueden editar pedidos en estado PENDIENTE.",
+                        color = Gray,
+                        fontSize = 12.sp
+                    )
+                }
                 TextButton(
                     onClick = { showDeleteDialog = true },
                     enabled = !isDeleting,

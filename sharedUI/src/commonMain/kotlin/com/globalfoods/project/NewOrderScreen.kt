@@ -74,6 +74,7 @@ import com.globalfoods.project.sharedlogic.network.orders.OrderLineRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderRequest
+import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 private enum class NewOrderStep { Details, Catalog, Summary }
 
@@ -83,7 +84,7 @@ private val customerBranches = listOf(
     "Sucursal Norte" to "Av. Federalismo 850, Col. Lomas, Guadalajara, Jalisco"
 )
 
-private data class NewOrderFormState(
+internal data class NewOrderFormState(
     val quantities: Map<String, String> = emptyMap(),
     val clientId: Int? = null,
     val branchId: Int? = null,
@@ -99,7 +100,8 @@ private data class NewOrderFormState(
     val notes: String = "",
     val shipping: String = "",
     val deliveryMode: String = "Dirección",
-    val payment: String = "Transferencia"
+    val payment: String = "Transferencia",
+    val references: String = ""
 ) {
     val shippingCost: Double
         get() = shipping.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
@@ -112,16 +114,96 @@ private data class NewOrderFormState(
             notes.isNotBlank() || shipping.isNotBlank()
 }
 
+/** Reconstruye el formulario a partir de un pedido ya registrado para poder editarlo. */
+internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
+    val observations = OrderObservations.decode(order.notes)
+    val delivery = observations.delivery
+    val clientType = delivery?.clientType?.takeIf { it.isNotBlank() }
+        ?: if (order.clientId != null) "Cliente registrado" else "Cliente esporádico"
+    val isPickup = delivery?.method == "Recolección"
+    val address = if (isPickup) freezerAddress else delivery?.address.orEmpty()
+    val (street, neighborhood, postalCode) =
+        if (!isPickup && clientType == "Cliente esporádico") splitAddress(address) else Triple("", "", "")
+    return NewOrderFormState(
+        quantities = order.lines
+            .filter { it.quantity > 0 }
+            .associate { it.size to formatQuantity(it.quantity) },
+        clientId = order.clientId ?: order.client?.id,
+        branchId = order.branchId.takeUnless { isPickup },
+        client = delivery?.clientName?.takeIf { it.isNotBlank() } ?: order.client?.name.orEmpty(),
+        clientType = clientType,
+        phone = delivery?.phone?.takeIf { it.isNotBlank() } ?: order.client?.phone.orEmpty(),
+        branch = if (isPickup) "Congeladora Global Foods" else delivery?.branchName.orEmpty(),
+        address = address,
+        street = street,
+        neighborhood = neighborhood,
+        postalCode = postalCode,
+        deliveryDate = orderDateToText(order.date) ?: millisToDate(currentDateMillis()),
+        notes = observations.notes,
+        shipping = delivery?.shippingCost?.takeIf { it > 0 }?.let(::formatQuantity).orEmpty(),
+        deliveryMode = if (isPickup) "Recolección" else "Dirección",
+        references = delivery?.references.orEmpty()
+    )
+}
+
+/**
+ * Inventario usado al editar: conserva el precio pactado de los productos que ya traía el pedido,
+ * permite mantener al menos la cantidad ya pedida y agrega las tallas que ya no aparecen en inventario.
+ */
+internal fun editableInventory(inventory: List<ArticuloInventario>, order: OrderResponse?): List<ArticuloInventario> {
+    if (order == null) return inventory
+    val lines = order.lines.filter { it.quantity > 0 }.associateBy { it.size }
+    val merged = inventory.map { product ->
+        lines[product.talla]?.let { line ->
+            product.copy(
+                codigoProducto = product.codigoProducto.takeIf { it > 0 } ?: line.productCode,
+                precio = line.price,
+                cantidadKg = maxOf(product.cantidadKg, line.quantity)
+            )
+        } ?: product
+    }
+    val missing = lines.values
+        .filter { line -> inventory.none { it.talla == line.size } }
+        .map { line -> ArticuloInventario(line.productCode, line.size, line.price, 0.0, line.quantity) }
+    return merged + missing
+}
+
+private fun splitAddress(address: String): Triple<String, String, String> {
+    val parts = address.split(", ").map(String::trim).filter(String::isNotBlank).toMutableList()
+    val postalCode = parts.lastOrNull()
+        ?.takeIf { it.startsWith("C.P. ") }
+        ?.also { parts.removeAt(parts.lastIndex) }
+        ?.removePrefix("C.P. ")
+        ?.filter(Char::isDigit)
+        ?.take(5)
+        .orEmpty()
+    val neighborhood = if (parts.size >= 2) parts.removeAt(parts.lastIndex) else ""
+    return Triple(parts.joinToString(", "), neighborhood, postalCode)
+}
+
+private fun orderDateToText(date: Int): String? {
+    val digits = date.toString().takeIf { it.length == 8 } ?: return null
+    return "${digits.substring(6, 8)}/${digits.substring(4, 6)}/${digits.substring(0, 4)}"
+}
+
+private fun formatQuantity(value: Double): String =
+    value.toString().let { if (it.contains('.')) it.trimEnd('0').trimEnd('.') else it }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewOrderScreen(
     onBack: () -> Unit,
     onLogout: () -> Unit,
-    onOrderCreated: () -> Unit
+    onOrderCreated: () -> Unit = {},
+    orderToEdit: OrderResponse? = null,
+    onOrderUpdated: (OrderResponse?) -> Unit = {}
 ) {
+    val isEditing = orderToEdit != null
+    val initialForm = remember(orderToEdit) { orderToEdit?.let(::formFromOrder) ?: NewOrderFormState() }
     val repository = remember { DashboardRepository() }
     val orderRepository = remember { OrderRepository() }
-    var inventory by remember { mutableStateOf<List<ArticuloInventario>>(emptyList()) }
+    var rawInventory by remember { mutableStateOf<List<ArticuloInventario>>(emptyList()) }
+    val inventory = remember(rawInventory, orderToEdit) { editableInventory(rawInventory, orderToEdit) }
     var clients by remember { mutableStateOf<List<Client>>(emptyList()) }
     var selectedClientBranches by remember { mutableStateOf<List<Branch>>(emptyList()) }
     var loadingBranches by remember { mutableStateOf(false) }
@@ -130,7 +212,7 @@ fun NewOrderScreen(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var step by remember { mutableStateOf(NewOrderStep.Details) }
-    var form by remember { mutableStateOf(NewOrderFormState()) }
+    var form by remember { mutableStateOf(initialForm) }
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
@@ -140,23 +222,67 @@ fun NewOrderScreen(
 
     LaunchedEffect(Unit) {
         repository.obtenerInventario().fold(
-            onSuccess = { inventory = it; loading = false },
+            onSuccess = { rawInventory = it; loading = false },
             onFailure = { error = it.message; loading = false }
         )
     }
 
     LaunchedEffect(Unit) {
         orderRepository.getClients().fold(
-            onSuccess = { clients = it },
+            onSuccess = { loaded ->
+                clients = loaded
+                val current = form
+                if (current.clientType == "Cliente registrado" && current.clientId != null) {
+                    loaded.firstOrNull { it.id == current.clientId }?.let { client ->
+                        form = current.copy(
+                            client = current.client.ifBlank { client.name },
+                            phone = current.phone.ifBlank { client.phone }
+                        )
+                    }
+                }
+            },
             onFailure = { saveError = it.message }
         )
+    }
+
+    fun loadBranches(clientId: Int?) {
+        val requestId = branchesRequestId + 1
+        branchesRequestId = requestId
+        selectedClientBranches = emptyList()
+        branchesClientId = clientId
+        loadingBranches = clientId != null
+        if (clientId == null) return
+        scope.launch {
+            orderRepository.getBranches(clientId).fold(
+                onSuccess = { branches ->
+                    if (branchesRequestId == requestId && branchesClientId == clientId) {
+                        // Al editar se conserva la sucursal original aunque ya no esté activa.
+                        selectedClientBranches = branches.filter { it.status == 1 || it.id == form.branchId }
+                        loadingBranches = false
+                    }
+                },
+                onFailure = {
+                    if (branchesRequestId == requestId && branchesClientId == clientId) {
+                        loadingBranches = false
+                        saveError = it.message
+                    }
+                }
+            )
+        }
+    }
+
+    LaunchedEffect(orderToEdit) {
+        if (initialForm.clientType == "Cliente registrado" && initialForm.clientId != null) {
+            loadBranches(initialForm.clientId)
+        }
     }
 
     fun goBack() {
         when (step) {
             NewOrderStep.Catalog, NewOrderStep.Summary -> step = NewOrderStep.Details
             NewOrderStep.Details -> {
-                if (form.hasCapturedData) {
+                val hasChanges = if (isEditing) form != initialForm else form.hasCapturedData
+                if (hasChanges) {
                     showDiscardDialog = true
                 } else {
                     onBack()
@@ -173,15 +299,28 @@ fun NewOrderScreen(
                 colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
                 Column(Modifier.padding(20.dp)) {
-                    Text("¿Descartar información?", fontWeight = FontWeight.Bold, color = Navy, fontSize = 18.sp)
+                    Text(
+                        if (isEditing) "¿Descartar cambios?" else "¿Descartar información?",
+                        fontWeight = FontWeight.Bold,
+                        color = Navy,
+                        fontSize = 18.sp
+                    )
                     Spacer(Modifier.height(8.dp))
-                    Text("Si regresas al dashboard, los datos capturados se perderán.", color = Gray)
+                    Text(
+                        if (isEditing) "Si regresas al detalle, los cambios al pedido se perderán."
+                        else "Si regresas al dashboard, los datos capturados se perderán.",
+                        color = Gray
+                    )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = { showDiscardDialog = false }) { Text("Continuar editando") }
                         TextButton(onClick = {
-                            form = NewOrderFormState()
                             showDiscardDialog = false
-                            step = NewOrderStep.Details
+                            if (isEditing) {
+                                onBack()
+                            } else {
+                                form = NewOrderFormState()
+                                step = NewOrderStep.Details
+                            }
                         }) { Text("Descartar", color = Color(0xFFB91C1C)) }
                     }
                 }
@@ -209,6 +348,7 @@ fun NewOrderScreen(
         topBar = {
             NewOrderHeader(
                 step = step,
+                isEditing = isEditing,
                 onBack = ::goBack,
                 onSettings = { showSettings = true }
             )
@@ -232,31 +372,7 @@ fun NewOrderScreen(
                 clients = clients,
                 selectedClientBranches = selectedClientBranches,
                 loadingBranches = loadingBranches,
-                onClientSelected = { client ->
-                    val requestId = branchesRequestId + 1
-                    branchesRequestId = requestId
-                    selectedClientBranches = emptyList()
-                    branchesClientId = client?.id
-                    loadingBranches = client != null
-                    client?.let { selected ->
-                        scope.launch {
-                            orderRepository.getBranches(selected.id).fold(
-                                onSuccess = { branches ->
-                                    if (branchesRequestId == requestId && branchesClientId == selected.id) {
-                                        selectedClientBranches = branches.filter { it.status == 1 }
-                                        loadingBranches = false
-                                    }
-                                },
-                                onFailure = {
-                                    if (branchesRequestId == requestId && branchesClientId == selected.id) {
-                                        loadingBranches = false
-                                        saveError = it.message
-                                    }
-                                }
-                            )
-                        }
-                    }
-                },
+                onClientSelected = { client -> loadBranches(client?.id) },
                 onFormChange = { form = it },
                 onDatePicker = { showDatePicker = true },
                 onContinue = { step = NewOrderStep.Summary },
@@ -270,6 +386,7 @@ fun NewOrderScreen(
                 onFormChange = { form = it },
                 onEdit = { step = NewOrderStep.Details },
                 onProducts = { step = NewOrderStep.Catalog },
+                submitLabel = if (isEditing) "Guardar cambios" else "Registrar pedido pendiente",
                 onSubmit = {
                     val products = selectedProducts(form.quantities, inventory)
                     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
@@ -291,29 +408,36 @@ fun NewOrderScreen(
                         address = if (isPickup) "" else form.address,
                         phone = form.phone.trim(),
                         branchName = if (isPickup) "" else form.branch,
+                        references = form.references,
                         shippingCost = form.shippingCost
+                    )
+                    val request = OrderRequest(
+                        clientId = form.clientId.takeIf { form.clientType == "Cliente registrado" },
+                        branchId = form.branchId.takeUnless { isPickup },
+                        date = date,
+                        totalKg = totalKg,
+                        total = total,
+                        status = orderToEdit?.status ?: 1,
+                        notes = OrderObservations(form.notes, delivery).encode(),
+                        lines = products.map {
+                            val quantity = form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0
+                            OrderLineRequest(it.codigoProducto, it.talla, quantity, it.precio, quantity * it.precio)
+                        }
                     )
                     isSaving = true
                     saveError = null
                     scope.launch {
-                        orderRepository.createOrder(
-                            OrderRequest(
-                                clientId = form.clientId,
-                                branchId = form.branchId.takeUnless { isPickup },
-                                date = date,
-                                totalKg = totalKg,
-                                total = total,
-                                status = 1,
-                                notes = OrderObservations(form.notes, delivery).encode(),
-                                lines = products.map {
-                                    val quantity = form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0
-                                    OrderLineRequest(it.codigoProducto, it.talla, quantity, it.precio, quantity * it.precio)
-                                }
+                        if (orderToEdit != null) {
+                            orderRepository.updateOrder(orderToEdit.id, request).fold(
+                                onSuccess = { isSaving = false; onOrderUpdated(it) },
+                                onFailure = { isSaving = false; saveError = it.message }
                             )
-                        ).fold(
-                            onSuccess = { isSaving = false; onOrderCreated() },
-                            onFailure = { isSaving = false; saveError = it.message }
-                        )
+                        } else {
+                            orderRepository.createOrder(request).fold(
+                                onSuccess = { isSaving = false; onOrderCreated() },
+                                onFailure = { isSaving = false; saveError = it.message }
+                            )
+                        }
                     }
                 },
                 modifier = Modifier.padding(insets)
@@ -335,7 +459,7 @@ fun NewOrderScreen(
     if (isSaving) {
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("Registrando pedido") },
+            title = { Text(if (isEditing) "Guardando cambios" else "Registrando pedido") },
             text = { CircularProgressIndicator() },
             confirmButton = {}
         )
@@ -343,7 +467,7 @@ fun NewOrderScreen(
     saveError?.let { message ->
         AlertDialog(
             onDismissRequest = { saveError = null },
-            title = { Text("No se pudo registrar el pedido") },
+            title = { Text(if (isEditing) "No se pudo guardar el pedido" else "No se pudo registrar el pedido") },
             text = { Text(message) },
             confirmButton = { TextButton(onClick = { saveError = null }) { Text("Aceptar") } }
         )
@@ -353,6 +477,7 @@ fun NewOrderScreen(
 @Composable
 private fun NewOrderHeader(
     step: NewOrderStep,
+    isEditing: Boolean,
     onBack: () -> Unit,
     onSettings: () -> Unit
 ) {
@@ -364,7 +489,7 @@ private fun NewOrderHeader(
             .padding(start = 8.dp, end = 12.dp, top = 10.dp, bottom = 16.dp),
     ) {
         Text(
-            "NUEVO PEDIDO",
+            if (isEditing) "EDITAR PEDIDO" else "NUEVO PEDIDO",
             color = Green,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
@@ -387,7 +512,7 @@ private fun NewOrderHeader(
             Text(
                 when (step) {
                     NewOrderStep.Catalog -> "CATÁLOGO"
-                    NewOrderStep.Details -> "GENERAR PEDIDO"
+                    NewOrderStep.Details -> if (isEditing) "DATOS DEL PEDIDO" else "GENERAR PEDIDO"
                     NewOrderStep.Summary -> "RESUMEN DEL PEDIDO"
                 },
                 color = Color.White,
@@ -698,6 +823,7 @@ private fun SummaryStep(
     onFormChange: (NewOrderFormState) -> Unit,
     onEdit: () -> Unit,
     onProducts: () -> Unit,
+    submitLabel: String,
     onSubmit: () -> Unit,
     modifier: Modifier
 ) {
@@ -744,7 +870,7 @@ private fun SummaryStep(
             SummaryAmountRow("Importe total", "$${total}", emphasized = true)
             Text("El pago se registrará en una etapa posterior.", color = Gray, fontSize = 12.sp)
             Button(onClick = onSubmit, colors = ButtonDefaults.buttonColors(containerColor = Navy), modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp)) {
-                Text("Registrar pedido pendiente", fontWeight = FontWeight.Bold)
+                Text(submitLabel, fontWeight = FontWeight.Bold)
             }
         }
     }

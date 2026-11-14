@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 @Composable
 fun App() {
@@ -15,6 +16,8 @@ fun App() {
         // Guarda el ID del pedido cuando haces clic en uno
         var pedidoSeleccionado by remember { mutableStateOf<Order?>(null) }
         var refreshDashboard by remember { mutableStateOf(0) }
+        // Pedido que se está editando (tomado del detalle más reciente)
+        var pedidoEnEdicion by remember { mutableStateOf<OrderResponse?>(null) }
 
         when (pantallaActual) {
             "Splash" -> {
@@ -68,10 +71,41 @@ fun App() {
                         onDeleted = {
                             refreshDashboard++
                             pantallaActual = "Dashboard"
+                        },
+                        onEdit = { response ->
+                            pedidoEnEdicion = response
+                            pantallaActual = "EditarPedido"
                         }
                     )
                 } else {
                     pantallaActual = "Dashboard"
+                }
+            }
+            "EditarPedido" -> {
+                val response = pedidoEnEdicion
+
+                if (response != null) {
+                    NewOrderScreen(
+                        orderToEdit = response,
+                        onBack = {
+                            pedidoEnEdicion = null
+                            pantallaActual = "Detalles"
+                        },
+                        onOrderUpdated = { updated ->
+                            // Si la API no devuelve el pedido, el detalle lo vuelve a consultar por Id.
+                            updated?.let { pedidoSeleccionado = toOrder(it) }
+                            pedidoEnEdicion = null
+                            refreshDashboard++
+                            pantallaActual = "Detalles"
+                        },
+                        onLogout = {
+                            pedidoSeleccionado = null
+                            pedidoEnEdicion = null
+                            pantallaActual = "Login"
+                        }
+                    )
+                } else {
+                    pantallaActual = "Detalles"
                 }
             }
         }
