@@ -3,7 +3,9 @@ package com.globalfoods.project
 import com.globalfoods.project.sharedlogic.network.auth.UserRole
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import com.globalfoods.project.sharedlogic.network.orders.Branch
+import com.globalfoods.project.sharedlogic.network.orders.OrderDeliveryInfo
 import com.globalfoods.project.sharedlogic.network.orders.OrderLineResponse
+import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -84,6 +86,35 @@ class ClientViewTest {
         )
         assertEquals(listOf(4, 2, 1), sortBranches(branches, 7).map { it.id })
         assertEquals(emptyList(), sortBranches(branches, null))
+    }
+
+    @Test
+    fun aClientsOwnNameComesFromTheSessionInsteadOfTheClientCatalog() {
+        val own = ownClientForSession(UserRole.Client, clientId = 7, userName = "MARISQUERIA PALO SEC")
+        assertEquals(7, own?.id)
+        assertEquals(null, ownClientForSession(UserRole.Employee, clientId = 7, userName = "x"))
+        assertEquals(null, ownClientForSession(UserRole.Client, clientId = null, userName = "x"))
+
+        val order = toOrder(OrderResponse(id = 1, clientId = 7), mapOf(7 to own!!))
+        assertEquals("MARISQUERIA PALO SEC", order.client)
+    }
+
+    @Test
+    fun showsWhereTheOrderGoes() {
+        val withBranchId = toOrder(OrderResponse(id = 1, clientId = 7, branchId = 3), branchNames = mapOf(3 to "Sucursal Centro"))
+        assertEquals("Sucursal Centro", withBranchId.destination)
+
+        val pickup = toOrder(
+            OrderResponse(
+                id = 2,
+                notes = OrderObservations(
+                    notes = "",
+                    delivery = OrderDeliveryInfo(clientName = "A", clientType = "Cliente registrado", method = "Recolección", address = "")
+                ).encode()
+            )
+        )
+        assertEquals("Recolección", pickup.destination)
+        assertEquals("", toOrder(OrderResponse(id = 3)).destination)
     }
 
     @Test

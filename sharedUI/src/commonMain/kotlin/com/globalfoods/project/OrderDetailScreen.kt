@@ -73,11 +73,14 @@ fun OrderDetailScreen(
         response = detail
         val delivery = OrderObservations.decode(detail.notes).delivery
         val clientId = detail.clientId ?: detail.client?.id
-        val embeddedClient = detail.client?.takeIf { it.id == clientId }
-            ?: order.response?.client?.takeIf { it.id == clientId }
+        val ownClient = ownClientForSession()
+        val embeddedClient = detail.client?.takeIf { it.id == clientId && it.name.isNotBlank() }
+            ?: order.response?.client?.takeIf { it.id == clientId && it.name.isNotBlank() }
+            ?: ownClient?.takeIf { it.id == clientId }
         linkedClient = embeddedClient
         linkedBranch = null
-        if (clientId != null && delivery == null &&
+        // Un cliente no consulta el catálogo de clientes; usa los datos de su sesión.
+        if (ownClient == null && clientId != null && delivery == null &&
             (embeddedClient?.name.isNullOrBlank() || embeddedClient.phone.isBlank())
         ) {
             val clientsResult = repository.getClients()

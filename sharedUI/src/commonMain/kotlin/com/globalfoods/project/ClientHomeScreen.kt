@@ -246,7 +246,11 @@ private fun CurrentOrderCard(order: Order, onClick: () -> Unit) {
                 )
             }
             Spacer(Modifier.height(4.dp))
-            Text(order.elapsed, color = Gray, fontSize = 13.sp)
+            Text(
+                listOf(order.elapsed, order.destination).filter(String::isNotBlank).joinToString("  ·  "),
+                color = Gray,
+                fontSize = 13.sp
+            )
             Spacer(Modifier.height(16.dp))
             OrderStatusProgress(status)
             Spacer(Modifier.height(16.dp))

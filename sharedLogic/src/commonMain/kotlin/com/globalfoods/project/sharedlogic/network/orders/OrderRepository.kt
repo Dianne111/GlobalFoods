@@ -1,5 +1,6 @@
 package com.globalfoods.project.sharedlogic.network.orders
 
+import com.globalfoods.project.sharedlogic.network.core.ensureSuccess
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -15,12 +16,18 @@ import kotlinx.coroutines.CancellationException
 class OrderRepository {
     private val baseUrl = "https://api.globalfoodsmexico.com/api"
 
-    suspend fun getClients(): Result<List<Client>> = request { globalFoodsClient.get("$baseUrl/clientes/activos").body() }
+    suspend fun getClients(): Result<List<Client>> = request {
+        val response = globalFoodsClient.get("$baseUrl/clientes/activos")
+        ensureSuccess(response, "los clientes")
+        response.body()
+    }
 
     suspend fun getBranches(clientId: Int): Result<List<Branch>> = request {
-        globalFoodsClient.get("$baseUrl/sucursales-clientes") {
+        val response = globalFoodsClient.get("$baseUrl/sucursales-clientes") {
             header("X-Id-Cliente", clientId.toString())
-        }.body()
+        }
+        ensureSuccess(response, "las sucursales")
+        response.body()
     }
     suspend fun createBranch(branch: BranchRequest): Result<Unit> = request {
         validate(branch)
@@ -70,8 +77,17 @@ class OrderRepository {
         require(branch.address.isNotBlank()) { "Escribe la dirección de la sucursal." }
     }
 
-    suspend fun getOrders(): Result<List<OrderResponse>> = request { globalFoodsClient.get("$baseUrl/pedidos").body() }
-    suspend fun getOrder(id: Int): Result<OrderResponse> = request { globalFoodsClient.get("$baseUrl/pedidos/$id").body() }
+    suspend fun getOrders(): Result<List<OrderResponse>> = request {
+        val response = globalFoodsClient.get("$baseUrl/pedidos")
+        ensureSuccess(response, "los pedidos")
+        response.body()
+    }
+
+    suspend fun getOrder(id: Int): Result<OrderResponse> = request {
+        val response = globalFoodsClient.get("$baseUrl/pedidos/$id")
+        ensureSuccess(response, "el pedido")
+        response.body()
+    }
 
     suspend fun createOrder(order: OrderRequest): Result<OrderResponse> = request {
         validate(order)

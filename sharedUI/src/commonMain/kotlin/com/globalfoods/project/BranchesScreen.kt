@@ -79,7 +79,7 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
         loadError = null
         repository.getBranches(clientId).fold(
             onSuccess = { branches = sortBranches(it, clientId) },
-            onFailure = { loadError = "No se pudieron cargar tus sucursales." }
+            onFailure = { loadError = it.message ?: "No se pudieron cargar tus sucursales." }
         )
         isLoading = false
     }
