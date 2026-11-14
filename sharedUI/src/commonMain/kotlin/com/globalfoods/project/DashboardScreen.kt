@@ -35,6 +35,8 @@ import globalfoods.sharedui.generated.resources.global_foods_logo
 import org.jetbrains.compose.resources.painterResource
 
 // Imports de red
+import com.globalfoods.project.sharedlogic.network.auth.UserRole
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import com.globalfoods.project.sharedlogic.network.orders.Client
@@ -57,7 +59,8 @@ fun DashboardScreen(
     refreshKey: Int = 0,
     onOrderSelected: (Order) -> Unit = {},
     onNewOrder: () -> Unit = {},
-    onLogout: () -> Unit = {}
+    onLogout: () -> Unit = {},
+    onTabSelected: (MainTab) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
 
@@ -83,31 +86,17 @@ fun DashboardScreen(
 
     LaunchedEffect(refreshKey, ordersReloadKey) {
         orderError = null
-        orderRepository.getOrders().fold(
-            onSuccess = { response ->
-                orderItems = response.map { toOrder(it) }
-                val needsClients = response.any {
-                    it.clientId != null && it.client?.name.isNullOrBlank() &&
-                        OrderObservations.decode(it.notes).delivery?.clientName.isNullOrBlank()
-                }
-                if (needsClients) {
-                    orderRepository.getClients().fold(
-                        onSuccess = { clients ->
-                            val clientsById = clients.associateBy { it.id }
-                            orderItems = response.map { toOrder(it, clientsById) }
-                        },
-                        onFailure = { orderError = "No se pudieron cargar los nombres de los clientes." }
-                    )
-                }
-            },
-            onFailure = { orderError = "No se pudieron cargar los pedidos." }
+        loadOrders(
+            orderRepository,
+            onOrders = { orderItems = it },
+            onError = { orderError = it }
         )
     }
 
     Scaffold(
         containerColor = Background,
         topBar = { DashboardHeader(onLogout) },
-        bottomBar = { DashboardNavigation() }
+        bottomBar = { DashboardNavigation(MainTab.Inicio, onTabSelected) }
     ) { insets ->
         Box(
             modifier = Modifier
@@ -191,6 +180,42 @@ fun DashboardScreen(
     }
 }
 
+/**
+ * Consulta los pedidos y los entrega primero tal como llegan; si a alguno le falta el nombre del cliente,
+ * consulta el catálogo de clientes y los vuelve a entregar ya completos.
+ */
+internal suspend fun loadOrders(
+    orderRepository: OrderRepository,
+    onOrders: (List<Order>) -> Unit,
+    onError: (String) -> Unit
+) {
+    orderRepository.getOrders().fold(
+        onSuccess = { response ->
+            onOrders(response.map { toOrder(it) })
+            val needsClients = response.any {
+                it.clientId != null && it.client?.name.isNullOrBlank() &&
+                    OrderObservations.decode(it.notes).delivery?.clientName.isNullOrBlank()
+            }
+            if (needsClients) {
+                orderRepository.getClients().fold(
+                    onSuccess = { clients ->
+                        val clientsById = clients.associateBy { it.id }
+                        onOrders(response.map { toOrder(it, clientsById) })
+                    },
+                    onFailure = { onError("No se pudieron cargar los nombres de los clientes.") }
+                )
+            }
+        },
+        onFailure = { onError("No se pudieron cargar los pedidos.") }
+    )
+}
+
+/** Convierte la fecha de la API (yyyyMMdd) a dd/MM/yyyy. */
+internal fun formatOrderDate(date: Int?): String? {
+    val digits = date?.toString()?.takeIf { it.length == 8 && it.all(Char::isDigit) } ?: return null
+    return "${digits.substring(6, 8)}/${digits.substring(4, 6)}/${digits.substring(0, 4)}"
+}
+
 internal fun toOrder(response: OrderResponse, clientsById: Map<Int, Client> = emptyMap()): Order {
     val client = response.client?.takeIf { it.name.isNotBlank() }
         ?: response.clientId?.let { clientsById[it] }
@@ -205,7 +230,7 @@ internal fun toOrder(response: OrderResponse, clientsById: Map<Int, Client> = em
         items = "${response.lines.size} Items",
         status = statusLabel(response.status),
         statusColor = statusColor(response.status),
-        elapsed = "Fecha ${response.date}",
+        elapsed = formatOrderDate(response.date)?.let { "Entrega $it" } ?: "Sin fecha",
         accent = statusColor(response.status),
         totalKg = "${response.totalKg} kg",
         products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) },
@@ -352,39 +377,58 @@ private fun RowScope.TableCell(value: String, isHeader: Boolean) {
     )
 }
 
+enum class MainTab(val label: String) {
+    Inicio("INICIO"),
+    Pedidos("PEDIDOS"),
+    Clientes("CLIENTES")
+}
+
+/** Pestañas que ve cada rol (mismo criterio que el menú de la app web). */
+internal fun tabsFor(role: UserRole): List<MainTab> = when (role) {
+    UserRole.Administrator, UserRole.Employee -> MainTab.entries
+    UserRole.Client -> listOf(MainTab.Inicio, MainTab.Pedidos)
+    UserRole.Reports -> listOf(MainTab.Inicio)
+}
+
+private val MainTab.icon
+    get() = when (this) {
+        MainTab.Inicio -> Icons.Outlined.Home
+        MainTab.Pedidos -> Icons.Outlined.ReceiptLong
+        MainTab.Clientes -> Icons.Outlined.People
+    }
+
 @Composable
-internal fun DashboardNavigation() {
-    val items = listOf(
-        "INICIO" to Icons.Outlined.Home,
-        "PEDIDOS" to Icons.Outlined.ReceiptLong,
-        "CLIENTES" to Icons.Outlined.People
-    )
+internal fun DashboardNavigation(
+    selected: MainTab = MainTab.Inicio,
+    onTabSelected: (MainTab) -> Unit = {}
+) {
     NavigationBar(
         modifier = Modifier.navigationBarsPadding().height(66.dp),
         containerColor = Color.White,
         tonalElevation = 0.dp
     ) {
-        items.forEachIndexed { index, (label, icon) ->
+        tabsFor(sessionRol).forEach { tab ->
             NavigationBarItem(
-                selected = index == 0,
-                onClick = {},
-                icon = { Icon(icon, label, modifier = Modifier.size(19.dp)) },
-                label = { Text(label, fontSize = 8.sp) }
+                selected = tab == selected,
+                onClick = { if (tab != selected) onTabSelected(tab) },
+                icon = { Icon(tab.icon, tab.label, modifier = Modifier.size(19.dp)) },
+                label = { Text(tab.label, fontSize = 8.sp) }
             )
         }
     }
 }
 
 @Composable
-private fun OrderCard(order: Order, onClick: () -> Unit) {
+internal fun OrderCard(order: Order, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().height(86.dp).clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = CardShape,
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(Modifier.fillMaxSize()) {
-            Box(Modifier.width(4.dp).fillMaxSize().background(order.accent))
+        // La altura la define el contenido (antes era fija y se cortaba el tercer renglón).
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            Box(Modifier.width(4.dp).fillMaxHeight().background(order.accent))
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp).fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(order.number, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
