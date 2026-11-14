@@ -245,6 +245,7 @@ fun NewOrderScreen(
     var clients by remember { mutableStateOf<List<Client>>(emptyList()) }
     var selectedClientBranches by remember { mutableStateOf<List<Branch>>(emptyList()) }
     var loadingBranches by remember { mutableStateOf(false) }
+    var branchesError by remember { mutableStateOf<String?>(null) }
     var branchesClientId by remember { mutableStateOf<Int?>(null) }
     var branchesRequestId by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(true) }
@@ -289,6 +290,7 @@ fun NewOrderScreen(
         val requestId = branchesRequestId + 1
         branchesRequestId = requestId
         selectedClientBranches = emptyList()
+        branchesError = null
         branchesClientId = clientId
         loadingBranches = clientId != null
         if (clientId == null) return
@@ -311,7 +313,7 @@ fun NewOrderScreen(
                 onFailure = {
                     if (branchesRequestId == requestId && branchesClientId == clientId) {
                         loadingBranches = false
-                        saveError = it.message
+                        branchesError = it.message
                     }
                 }
             )
@@ -401,7 +403,7 @@ fun NewOrderScreen(
                 onSettings = { showSettings = true }
             )
         },
-        bottomBar = { DashboardNavigation() }
+        // Sin barra inferior: es un flujo con flecha de regreso, para no perder un pedido a medias.
     ) { insets ->
         when (step) {
             NewOrderStep.Catalog -> CatalogStep(
@@ -422,6 +424,7 @@ fun NewOrderScreen(
                 clients = clients,
                 selectedClientBranches = selectedClientBranches,
                 loadingBranches = loadingBranches,
+                branchesError = branchesError,
                 onClientSelected = { client -> loadBranches(client?.id) },
                 onFormChange = { form = it },
                 onDatePicker = { showDatePicker = true },
@@ -664,6 +667,7 @@ private fun DetailsStep(
     clients: List<Client>,
     selectedClientBranches: List<Branch>,
     loadingBranches: Boolean,
+    branchesError: String?,
     onClientSelected: (Client?) -> Unit,
     onFormChange: (NewOrderFormState) -> Unit,
     onDatePicker: () -> Unit,
@@ -792,6 +796,8 @@ private fun DetailsStep(
                 )
                 if (loadingBranches) {
                     CircularProgressIndicator(color = Green, modifier = Modifier.size(20.dp))
+                } else if (branchesError != null) {
+                    Text(branchesError, color = Color(0xFFB91C1C), fontSize = 12.sp)
                 } else if (selectedClientBranches.isEmpty()) {
                     Text(
                         if (isClient) "No tienes sucursales registradas. Agrégalas en la pestaña Sucursales o elige Recolección."

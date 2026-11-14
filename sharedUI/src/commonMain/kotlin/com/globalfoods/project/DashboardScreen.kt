@@ -37,6 +37,7 @@ import org.jetbrains.compose.resources.painterResource
 // Imports de red
 import com.globalfoods.project.sharedlogic.network.auth.UserRole
 import com.globalfoods.project.sharedlogic.network.core.sessionIdCliente
+import com.globalfoods.project.sharedlogic.network.core.sessionNombreUsuario
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
@@ -193,6 +194,18 @@ internal suspend fun loadOrders(
     orderRepository.getOrders().fold(
         onSuccess = { all ->
             val response = visibleToCurrentUser(all)
+            // Un cliente no puede (ni debe) consultar el catálogo de clientes: sus pedidos llevan su propio nombre.
+            val ownClient = ownClientForSession()
+            if (ownClient != null) {
+                val clients = mapOf(ownClient.id to ownClient)
+                onOrders(response.map { toOrder(it, clients) })
+                // Sus sucursales dan el nombre del destino a los pedidos que solo traen IdSucursal.
+                orderRepository.getBranches(ownClient.id).onSuccess { branches ->
+                    val names = branches.associate { it.id to it.name }
+                    onOrders(response.map { toOrder(it, clients, names) })
+                }
+                return@fold
+            }
             onOrders(response.map { toOrder(it) })
             val needsClients = response.any {
                 it.clientId != null && it.client?.name.isNullOrBlank() &&
@@ -212,6 +225,14 @@ internal suspend fun loadOrders(
     )
 }
 
+/** Para el rol Cliente, su propio cliente armado con los datos de la sesión; null para los demás roles. */
+internal fun ownClientForSession(
+    role: UserRole = sessionRol,
+    clientId: Int? = sessionIdCliente,
+    userName: String? = sessionNombreUsuario
+): Client? =
+    if (role == UserRole.Client && clientId != null) Client(id = clientId, name = userName.orEmpty()) else null
+
 /**
  * Un Cliente solo ve sus pedidos. Esto es solo para la pantalla: la protección real debe hacerla
  * la API filtrando por el IdCliente del token. Sin IdCliente en la sesión no se muestra ninguno.
@@ -230,11 +251,16 @@ internal fun formatOrderDate(date: Int?): String? {
     return "${digits.substring(6, 8)}/${digits.substring(4, 6)}/${digits.substring(0, 4)}"
 }
 
-internal fun toOrder(response: OrderResponse, clientsById: Map<Int, Client> = emptyMap()): Order {
+internal fun toOrder(
+    response: OrderResponse,
+    clientsById: Map<Int, Client> = emptyMap(),
+    branchNames: Map<Int, String> = emptyMap()
+): Order {
     val client = response.client?.takeIf { it.name.isNotBlank() }
         ?: response.clientId?.let { clientsById[it] }
         ?: response.client
-    val clientName = OrderObservations.decode(response.notes).delivery?.clientName?.takeIf { it.isNotBlank() }
+    val delivery = OrderObservations.decode(response.notes).delivery
+    val clientName = delivery?.clientName?.takeIf { it.isNotBlank() }
         ?: client?.name?.takeIf { it.isNotBlank() }
         ?: "Nombre no disponible"
     return Order(
@@ -249,7 +275,12 @@ internal fun toOrder(response: OrderResponse, clientsById: Map<Int, Client> = em
         totalKg = "${response.totalKg} kg",
         products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) },
         id = response.id,
-        response = response.copy(client = client)
+        response = response.copy(client = client),
+        destination = when {
+            delivery?.method == "Recolección" -> "Recolección"
+            !delivery?.branchName.isNullOrBlank() -> delivery?.branchName.orEmpty()
+            else -> response.branchId?.let(branchNames::get).orEmpty()
+        }
     )
 }
 
@@ -452,8 +483,14 @@ internal fun OrderCard(order: Order, onClick: () -> Unit) {
                 }
                 Spacer(Modifier.height(5.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Cliente: ", color = Gray, fontSize = 10.sp)
-                    Text(order.client, color = Navy, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    // El cliente ya sabe que los pedidos son suyos: se le muestra a dónde van.
+                    val (label, value) = if (sessionRol == UserRole.Client) {
+                        "Entrega en: " to order.destination.ifBlank { "Sucursal no indicada" }
+                    } else {
+                        "Cliente: " to order.client
+                    }
+                    Text(label, color = Gray, fontSize = 10.sp)
+                    Text(value, color = Navy, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     Text("Total: ${order.total}  ›", color = Navy, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(6.dp))
@@ -488,7 +525,9 @@ data class Order(
     val totalKg: String = "0 kg",
     val products: List<OrderProduct> = emptyList(),
     val id: Int = 0,
-    val response: OrderResponse? = null
+    val response: OrderResponse? = null,
+    /** A dónde va el pedido: nombre de la sucursal o "Recolección". */
+    val destination: String = ""
 )
 
 val orders = listOf(
