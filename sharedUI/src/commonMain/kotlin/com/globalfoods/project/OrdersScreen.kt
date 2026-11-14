@@ -169,7 +169,7 @@ fun OrdersScreen(
 }
 
 @Composable
-private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
+internal fun SearchField(query: String, onQueryChange: (String) -> Unit, placeholder: String = "Buscar pedido") {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -183,7 +183,7 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
         Spacer(Modifier.width(8.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) {
-                Text("Buscar pedido", color = Gray, fontSize = 14.sp)
+                Text(placeholder, color = Gray, fontSize = 14.sp)
             }
             BasicTextField(
                 value = query,
@@ -211,25 +211,40 @@ private fun ViewTabs(
     selected: OrdersView,
     onSelected: (OrdersView) -> Unit
 ) {
+    SegmentedTabs(
+        options = OrdersView.entries,
+        selected = selected,
+        label = { view -> "${view.label} · ${orders.count(view::includes)}" },
+        onSelected = onSelected
+    )
+}
+
+/** Pestañas del mismo ancho dentro de una barra gris; la seleccionada va en azul. */
+@Composable
+internal fun <T> SegmentedTabs(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelected: (T) -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
             .padding(4.dp)
     ) {
-        OrdersView.entries.forEach { view ->
-            val isSelected = view == selected
-            val count = orders.count(view::includes)
+        options.forEach { option ->
+            val isSelected = option == selected
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .weight(1f)
                     .height(36.dp)
                     .background(if (isSelected) Navy else Color.Transparent, RoundedCornerShape(9.dp))
-                    .clickable { onSelected(view) }
+                    .clickable { onSelected(option) }
             ) {
                 Text(
-                    "${view.label} · $count",
+                    label(option),
                     color = if (isSelected) Color.White else Navy,
                     fontSize = 13.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium

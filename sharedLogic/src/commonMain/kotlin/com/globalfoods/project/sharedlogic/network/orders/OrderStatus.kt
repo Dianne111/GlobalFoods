@@ -14,6 +14,9 @@ enum class OrderStatus(val code: Int, val label: String) {
     /** Solo un pedido recién creado puede modificarse. */
     val isEditable: Boolean get() = this == Created
 
+    /** Se puede cancelar mientras no se haya entregado (ni cancelado ya). */
+    val isCancellable: Boolean get() = this == Created || this == Supplied || this == InDelivery
+
     /** Al entregarse, el vendedor o administrador registra cómo pagó el cliente. */
     val acceptsPayment: Boolean get() = this == Delivered
 

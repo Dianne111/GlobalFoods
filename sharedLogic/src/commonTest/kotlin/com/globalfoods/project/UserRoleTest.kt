@@ -32,7 +32,7 @@ class UserRoleTest {
         assertTrue(client.canCreateOrders)
         assertTrue(client.canManageOwnBranches)
         assertFalse(client.canEditOrders)
-        assertFalse(client.canDeleteOrders)
+        assertFalse(client.canCancelOrders)
         assertFalse(client.canSeeInventory)
         assertTrue(UserRole.Employee.canSeeInventory && UserRole.Employee.canEditOrders)
         assertFalse(UserRole.Reports.canCreateOrders)

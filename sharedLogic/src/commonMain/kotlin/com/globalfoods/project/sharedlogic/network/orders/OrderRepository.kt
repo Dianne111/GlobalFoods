@@ -2,7 +2,6 @@ package com.globalfoods.project.sharedlogic.network.orders
 
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
 import io.ktor.client.call.body
-import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -41,9 +40,28 @@ class OrderRepository {
         if (!response.status.isSuccess()) error("No se pudo actualizar la sucursal (HTTP ${response.status.value})")
     }
 
-    suspend fun deleteBranch(id: Int): Result<Unit> = request {
-        val response = globalFoodsClient.delete("$baseUrl/sucursales-clientes/$id")
-        if (!response.status.isSuccess()) error("No se pudo eliminar la sucursal (HTTP ${response.status.value})")
+    /**
+     * Baja lógica: la sucursal se conserva con Estatus 0 (o vuelve a 1 al reactivarla).
+     * No se usa DELETE para no perder la referencia de los pedidos que ya se entregaron ahí.
+     * No revalida nombre ni dirección para poder dar de baja sucursales antiguas incompletas.
+     */
+    suspend fun setBranchActive(branch: Branch, active: Boolean): Result<Unit> = request {
+        require(branch.clientId > 0) { "La sucursal no tiene un cliente válido." }
+        val body = BranchRequest(
+            clientId = branch.clientId,
+            name = branch.name,
+            address = branch.address,
+            phone = branch.phone,
+            status = if (active) 1 else 0
+        )
+        val response = globalFoodsClient.put("$baseUrl/sucursales-clientes/${branch.id}") {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        if (!response.status.isSuccess()) {
+            val action = if (active) "reactivar" else "dar de baja"
+            error("No se pudo $action la sucursal (HTTP ${response.status.value})")
+        }
     }
 
     private fun validate(branch: BranchRequest) {
@@ -105,9 +123,16 @@ class OrderRepository {
         }
     }
 
-    suspend fun deleteOrder(id: Int): Result<Unit> = request {
-        val response = globalFoodsClient.delete("$baseUrl/pedidos/$id")
-        if (!response.status.isSuccess()) error("Error del servidor: ${response.status.value}")
+    /**
+     * Cancelación (baja lógica): reenvía el pedido tal como está con Estatus 5 (Cancelado).
+     * No se usa DELETE para conservar el pedido en el historial.
+     */
+    suspend fun cancelOrder(order: OrderResponse): Result<OrderResponse?> {
+        val status = OrderStatus.fromCode(order.status)
+        if (status?.isCancellable != true) {
+            return Result.failure(Exception("Este pedido ya no se puede cancelar (estado: ${status?.label ?: order.status})."))
+        }
+        return updateOrder(order.id, cancellationRequest(order))
     }
 
     private suspend fun <T> request(block: suspend () -> T): Result<T> =
