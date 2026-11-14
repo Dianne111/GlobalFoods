@@ -27,6 +27,18 @@ class UserRoleTest {
     }
 
     @Test
+    fun aClientCreatesAndConsultsButDoesNotEditDeleteOrSeeStock() {
+        val client = UserRole.Client
+        assertTrue(client.canCreateOrders)
+        assertTrue(client.canManageOwnBranches)
+        assertFalse(client.canEditOrders)
+        assertFalse(client.canDeleteOrders)
+        assertFalse(client.canSeeInventory)
+        assertTrue(UserRole.Employee.canSeeInventory && UserRole.Employee.canEditOrders)
+        assertFalse(UserRole.Reports.canCreateOrders)
+    }
+
+    @Test
     fun parsesTipoUsuarioFromTheLoginResponse() {
         val json = Json { ignoreUnknownKeys = true }
         val withRole = json.decodeFromString(

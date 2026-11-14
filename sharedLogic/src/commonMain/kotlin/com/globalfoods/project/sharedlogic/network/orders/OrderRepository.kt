@@ -23,6 +23,35 @@ class OrderRepository {
             header("X-Id-Cliente", clientId.toString())
         }.body()
     }
+    suspend fun createBranch(branch: BranchRequest): Result<Unit> = request {
+        validate(branch)
+        val response = globalFoodsClient.post("$baseUrl/sucursales-clientes") {
+            contentType(ContentType.Application.Json)
+            setBody(branch)
+        }
+        if (!response.status.isSuccess()) error("No se pudo registrar la sucursal (HTTP ${response.status.value})")
+    }
+
+    suspend fun updateBranch(id: Int, branch: BranchRequest): Result<Unit> = request {
+        validate(branch)
+        val response = globalFoodsClient.put("$baseUrl/sucursales-clientes/$id") {
+            contentType(ContentType.Application.Json)
+            setBody(branch)
+        }
+        if (!response.status.isSuccess()) error("No se pudo actualizar la sucursal (HTTP ${response.status.value})")
+    }
+
+    suspend fun deleteBranch(id: Int): Result<Unit> = request {
+        val response = globalFoodsClient.delete("$baseUrl/sucursales-clientes/$id")
+        if (!response.status.isSuccess()) error("No se pudo eliminar la sucursal (HTTP ${response.status.value})")
+    }
+
+    private fun validate(branch: BranchRequest) {
+        require(branch.clientId > 0) { "Tu usuario no está vinculado a un cliente." }
+        require(branch.name.isNotBlank()) { "Escribe el nombre de la sucursal." }
+        require(branch.address.isNotBlank()) { "Escribe la dirección de la sucursal." }
+    }
+
     suspend fun getOrders(): Result<List<OrderResponse>> = request { globalFoodsClient.get("$baseUrl/pedidos").body() }
     suspend fun getOrder(id: Int): Result<OrderResponse> = request { globalFoodsClient.get("$baseUrl/pedidos/$id").body() }
 

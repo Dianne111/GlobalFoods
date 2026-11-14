@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.globalfoods.project.sharedlogic.network.auth.AuthRepository
+import com.globalfoods.project.sharedlogic.network.auth.UserRole
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 @Composable
@@ -21,12 +23,15 @@ fun App() {
         var pedidoEnEdicion by remember { mutableStateOf<OrderResponse?>(null) }
         // Pantalla de la barra inferior a la que se regresa al salir del detalle ("Dashboard" o "Pedidos")
         var pantallaLista by remember { mutableStateOf("Dashboard") }
+        // Pedido anterior que se usa como base en "Repetir último pedido"
+        var pedidoBase by remember { mutableStateOf<OrderResponse?>(null) }
 
         val abrirPestana: (MainTab) -> Unit = { tab ->
             when (tab) {
                 MainTab.Inicio -> pantallaActual = "Dashboard"
                 MainTab.Pedidos -> pantallaActual = "Pedidos"
                 MainTab.Clientes -> Unit // Pendiente: se desarrolla en su propia rama.
+                MainTab.Sucursales -> pantallaActual = "Sucursales"
             }
         }
         val cerrarSesion: () -> Unit = {
@@ -34,6 +39,7 @@ fun App() {
             AuthRepository().cerrarSesion()
             pedidoSeleccionado = null
             pedidoEnEdicion = null
+            pedidoBase = null
             pantallaLista = "Dashboard"
             pantallaActual = "Login"
         }
@@ -57,13 +63,37 @@ fun App() {
                 )
             }
             "Dashboard" -> {
-                DashboardScreen(
-                    refreshKey = refreshDashboard,
-                    onOrderSelected = { order -> abrirDetalle(order, "Dashboard") },
-                    onNewOrder = { pantallaActual = "NuevoPedido" },
-                    onLogout = cerrarSesion,
-                    onTabSelected = abrirPestana
-                )
+                // El cliente tiene su propio Inicio (sin inventario); asesoras y administradores, el panel de ventas.
+                if (sessionRol == UserRole.Client) {
+                    ClientHomeScreen(
+                        refreshKey = refreshDashboard,
+                        onNewOrder = {
+                            pedidoBase = null
+                            pantallaActual = "NuevoPedido"
+                        },
+                        onRepeatOrder = { anterior ->
+                            pedidoBase = anterior
+                            pantallaActual = "NuevoPedido"
+                        },
+                        onOrderSelected = { order -> abrirDetalle(order, "Dashboard") },
+                        onTabSelected = abrirPestana,
+                        onLogout = cerrarSesion
+                    )
+                } else {
+                    DashboardScreen(
+                        refreshKey = refreshDashboard,
+                        onOrderSelected = { order -> abrirDetalle(order, "Dashboard") },
+                        onNewOrder = {
+                            pedidoBase = null
+                            pantallaActual = "NuevoPedido"
+                        },
+                        onLogout = cerrarSesion,
+                        onTabSelected = abrirPestana
+                    )
+                }
+            }
+            "Sucursales" -> {
+                BranchesScreen(onTabSelected = abrirPestana)
             }
             "Pedidos" -> {
                 OrdersScreen(
@@ -74,8 +104,13 @@ fun App() {
             }
             "NuevoPedido" -> {
                 NewOrderScreen(
-                    onBack = { pantallaActual = "Dashboard" },
+                    template = pedidoBase,
+                    onBack = {
+                        pedidoBase = null
+                        pantallaActual = "Dashboard"
+                    },
                     onOrderCreated = {
+                        pedidoBase = null
                         refreshDashboard++
                         pantallaActual = "Dashboard"
                     },

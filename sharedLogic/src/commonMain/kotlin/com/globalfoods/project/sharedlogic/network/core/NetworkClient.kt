@@ -11,6 +11,8 @@ import kotlinx.serialization.json.Json
 var sessionToken: String? = null
 var sessionNombreUsuario: String? = null
 var sessionRol: UserRole = UserRole.Administrator
+/** IdCliente del usuario con rol Cliente; null mientras la API no lo devuelva en el login. */
+var sessionIdCliente: Int? = null
 
 val globalFoodsClient = HttpClient {
     install(ContentNegotiation) {

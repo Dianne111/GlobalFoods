@@ -30,6 +30,7 @@ import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import com.globalfoods.project.sharedlogic.network.orders.orderStatus
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -309,27 +310,32 @@ fun OrderDetailScreen(
                 }
             }
 
-            item {
+            // El cliente solo consulta: no ve Editar ni Eliminar.
+            if (sessionRol.canEditOrders || sessionRol.canDeleteOrders) item {
                 val editable = response?.takeIf { it.orderStatus?.isEditable == true }
-                if (editable != null) {
-                    Button(
-                        onClick = { onEdit(editable) },
-                        enabled = !isLoading && !isDeleting,
-                        colors = ButtonDefaults.buttonColors(containerColor = Navy),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
-                    ) { Text("Editar pedido", fontWeight = FontWeight.Bold) }
-                } else if (response != null) {
-                    Text(
-                        "Solo se pueden editar pedidos en estado CREADO.",
-                        color = Gray,
-                        fontSize = 12.sp
-                    )
+                if (sessionRol.canEditOrders) {
+                    if (editable != null) {
+                        Button(
+                            onClick = { onEdit(editable) },
+                            enabled = !isLoading && !isDeleting,
+                            colors = ButtonDefaults.buttonColors(containerColor = Navy),
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        ) { Text("Editar pedido", fontWeight = FontWeight.Bold) }
+                    } else if (response != null) {
+                        Text(
+                            "Solo se pueden editar pedidos en estado CREADO.",
+                            color = Gray,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
-                TextButton(
-                    onClick = { showDeleteDialog = true },
-                    enabled = !isDeleting,
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
-                ) { Text("Eliminar pedido") }
+                if (sessionRol.canDeleteOrders) {
+                    TextButton(
+                        onClick = { showDeleteDialog = true },
+                        enabled = !isDeleting,
+                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
+                    ) { Text("Eliminar pedido") }
+                }
             }
         }
     }

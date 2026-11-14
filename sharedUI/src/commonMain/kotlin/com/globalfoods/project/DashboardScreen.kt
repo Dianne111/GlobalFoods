@@ -36,6 +36,7 @@ import org.jetbrains.compose.resources.painterResource
 
 // Imports de red
 import com.globalfoods.project.sharedlogic.network.auth.UserRole
+import com.globalfoods.project.sharedlogic.network.core.sessionIdCliente
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
@@ -190,7 +191,8 @@ internal suspend fun loadOrders(
     onError: (String) -> Unit
 ) {
     orderRepository.getOrders().fold(
-        onSuccess = { response ->
+        onSuccess = { all ->
+            val response = visibleToCurrentUser(all)
             onOrders(response.map { toOrder(it) })
             val needsClients = response.any {
                 it.clientId != null && it.client?.name.isNullOrBlank() &&
@@ -209,6 +211,18 @@ internal suspend fun loadOrders(
         onFailure = { onError("No se pudieron cargar los pedidos.") }
     )
 }
+
+/**
+ * Un Cliente solo ve sus pedidos. Esto es solo para la pantalla: la protección real debe hacerla
+ * la API filtrando por el IdCliente del token. Sin IdCliente en la sesión no se muestra ninguno.
+ */
+internal fun visibleToCurrentUser(
+    orders: List<OrderResponse>,
+    role: UserRole = sessionRol,
+    clientId: Int? = sessionIdCliente
+): List<OrderResponse> =
+    if (role != UserRole.Client) orders
+    else orders.filter { clientId != null && (it.clientId ?: it.client?.id) == clientId }
 
 /** Convierte la fecha de la API (yyyyMMdd) a dd/MM/yyyy. */
 internal fun formatOrderDate(date: Int?): String? {
@@ -380,13 +394,14 @@ private fun RowScope.TableCell(value: String, isHeader: Boolean) {
 enum class MainTab(val label: String) {
     Inicio("INICIO"),
     Pedidos("PEDIDOS"),
-    Clientes("CLIENTES")
+    Clientes("CLIENTES"),
+    Sucursales("SUCURSALES")
 }
 
-/** Pestañas que ve cada rol (mismo criterio que el menú de la app web). */
+/** Pestañas que ve cada rol. El cliente administra sus sucursales en lugar del catálogo de clientes. */
 internal fun tabsFor(role: UserRole): List<MainTab> = when (role) {
-    UserRole.Administrator, UserRole.Employee -> MainTab.entries
-    UserRole.Client -> listOf(MainTab.Inicio, MainTab.Pedidos)
+    UserRole.Administrator, UserRole.Employee -> listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Clientes)
+    UserRole.Client -> listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Sucursales)
     UserRole.Reports -> listOf(MainTab.Inicio)
 }
 
@@ -395,6 +410,7 @@ private val MainTab.icon
         MainTab.Inicio -> Icons.Outlined.Home
         MainTab.Pedidos -> Icons.Outlined.ReceiptLong
         MainTab.Clientes -> Icons.Outlined.People
+        MainTab.Sucursales -> Icons.Outlined.Storefront
     }
 
 @Composable
