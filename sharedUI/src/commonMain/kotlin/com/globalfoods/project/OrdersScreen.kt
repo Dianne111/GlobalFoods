@@ -162,7 +162,11 @@ fun OrdersScreen(
                         )
                     }
                     else -> items(visible, key = { it.id }) { order ->
-                        OrderCard(order, onClick = { onOrderSelected(order) })
+                        OrderCard(
+                            order = order,
+                            onClick = { onOrderSelected(order) },
+                            showDeliveryButton = order.response?.status == OrderStatus.InDelivery.code
+                        )
                     }
                 }
                 item { Spacer(Modifier.height(12.dp)) }
