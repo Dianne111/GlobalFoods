@@ -93,6 +93,7 @@ fun OrdersScreen(
     // Se conservan al ir al detalle y regresar.
     var view by rememberSaveable { mutableStateOf(OrdersView.Active) }
     var query by rememberSaveable { mutableStateOf("") }
+    var deliveryOrder by remember { mutableStateOf<Order?>(null) }
 
     LaunchedEffect(refreshKey, reloadKey) {
         isLoading = true
@@ -165,13 +166,19 @@ fun OrdersScreen(
                         OrderCard(
                             order = order,
                             onClick = { onOrderSelected(order) },
-                            showDeliveryButton = order.response?.status == OrderStatus.InDelivery.code
+                            onRegisterDelivery = if (order.response?.status == OrderStatus.InDelivery.code) {
+                                { deliveryOrder = order }
+                            } else null
                         )
                     }
                 }
                 item { Spacer(Modifier.height(12.dp)) }
             }
         }
+    }
+
+    deliveryOrder?.let { order ->
+        RegisterDeliveryDialog(order = order, onDismissRequest = { deliveryOrder = null })
     }
 }
 

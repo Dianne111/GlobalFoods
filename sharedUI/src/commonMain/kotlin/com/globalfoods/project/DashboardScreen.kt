@@ -467,7 +467,7 @@ internal fun DashboardNavigation(
 }
 
 @Composable
-internal fun OrderCard(order: Order, onClick: () -> Unit, showDeliveryButton: Boolean = false) {
+internal fun OrderCard(order: Order, onClick: () -> Unit, onRegisterDelivery: (() -> Unit)? = null) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = CardShape,
@@ -501,12 +501,10 @@ internal fun OrderCard(order: Order, onClick: () -> Unit, showDeliveryButton: Bo
                     Spacer(Modifier.width(3.dp))
                     Text(order.elapsed, color = Gray, fontSize = 10.sp)
                 }
-                if (showDeliveryButton) {
+                if (onRegisterDelivery != null) {
                     Spacer(Modifier.height(22.dp))
                     Button(
-                        onClick = {
-                            // La acción de registrar la entrega se conectará en la siguiente etapa.
-                        },
+                        onClick = onRegisterDelivery,
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Navy, contentColor = Color.White)
