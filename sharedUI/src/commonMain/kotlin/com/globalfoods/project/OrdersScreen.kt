@@ -50,7 +50,10 @@ import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
 
 /** Ordena del pedido más reciente al más antiguo (por fecha de entrega y luego por número). */
 internal fun sortOrders(orders: List<Order>): List<Order> =
-    orders.sortedWith(compareByDescending<Order> { it.response?.date ?: 0 }.thenByDescending { it.id })
+    orders.sortedWith(
+        compareByDescending<Order> { formatOrderDate(it.response?.date)?.let(::dateToMillis) ?: Long.MIN_VALUE }
+            .thenByDescending { it.id }
+    )
 
 /** Agrupaciones de la pestaña Pedidos: lo que sigue en proceso, lo entregado y lo cancelado. */
 internal enum class OrdersView(val label: String) {

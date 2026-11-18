@@ -16,7 +16,7 @@ class EditOrderFormTest {
             id = 10,
             clientId = 42,
             branchId = 7,
-            date = 20261120,
+            date = 20262011,
             status = 1,
             notes = OrderObservations(
                 notes = "Tocar el timbre",
@@ -48,7 +48,7 @@ class EditOrderFormTest {
         assertEquals("3312345678", form.phone)
         assertEquals("Sucursal Centro", form.branch)
         assertEquals("Av. Juárez 120", form.address)
-        assertEquals("20/11/2026", form.deliveryDate)
+        assertEquals("2026/20/11", form.deliveryDate)
         assertEquals("Tocar el timbre", form.notes)
         assertEquals("50", form.shipping)
         assertEquals("Dirección", form.deliveryMode)
@@ -59,7 +59,7 @@ class EditOrderFormTest {
     fun splitsTheAddressOfAWalkInClientIntoItsFields() {
         val order = OrderResponse(
             id = 11,
-            date = 20261121,
+            date = 20262111,
             notes = OrderObservations(
                 notes = "",
                 delivery = OrderDeliveryInfo(

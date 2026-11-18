@@ -52,6 +52,7 @@ data class BranchRequest(
 data class OrderRequest(
     @SerialName("IdCliente") val clientId: Int?,
     @SerialName("IdSucursal") val branchId: Int?,
+    /** Fecha numérica en orden AAAADDMM. */
     @SerialName("Fecha") val date: Int,
     @SerialName("TotalKG") val totalKg: Double,
     @SerialName("Total") val total: Double,
@@ -74,6 +75,7 @@ data class OrderResponse(
     @SerialName("Id") val id: Int,
     @SerialName("IdCliente") val clientId: Int? = null,
     @SerialName("IdSucursal") val branchId: Int? = null,
+    /** Fecha numérica en orden AAAADDMM. */
     @SerialName("Fecha") val date: Int = 0,
     @SerialName("TotalKG") val totalKg: Double = 0.0,
     @SerialName("Total") val total: Double = 0.0,

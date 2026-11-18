@@ -11,16 +11,26 @@ class OrdersFilterTest {
         toOrder(OrderResponse(id = id, clientId = id, status = status, date = date, client = Client(id, client)))
 
     private val orders = listOf(
-        order(1, "Marisquería Palo Seco", status = 4, date = 20261110),
-        order(3, "Marisquería Palo Seco", status = 1, date = 20261120),
-        order(4, "Luis Fernando Olivarria", status = 3, date = 20261120),
-        order(7, "Cocina Doña Luz", status = 2, date = 20261118),
-        order(14, "Restaurante El Faro", status = 5, date = 20261115)
+        order(1, "Marisquería Palo Seco", status = 4, date = 20261011),
+        order(3, "Marisquería Palo Seco", status = 1, date = 20262011),
+        order(4, "Luis Fernando Olivarria", status = 3, date = 20262011),
+        order(7, "Cocina Doña Luz", status = 2, date = 20261811),
+        order(14, "Restaurante El Faro", status = 5, date = 20261511)
     )
 
     @Test
     fun sortsFromTheNewestToTheOldest() {
         assertEquals(listOf(4, 3, 7, 14, 1), sortOrders(orders).map { it.id })
+    }
+
+    @Test
+    fun sortsByCalendarDateAcrossMonthsInsteadOfTheNumericApiValue() {
+        val acrossMonths = listOf(
+            order(1, "Cliente", status = 1, date = 20263101),
+            order(2, "Cliente", status = 1, date = 20260102),
+            order(3, "Cliente", status = 1, date = 0)
+        )
+        assertEquals(listOf(2, 1, 3), sortOrders(acrossMonths).map { it.id })
     }
 
     @Test
@@ -53,7 +63,7 @@ class OrdersFilterTest {
 
     @Test
     fun formatsTheApiDateForTheCard() {
-        assertEquals("Entrega 20/11/2026", orders[1].elapsed)
+        assertEquals("Entrega 2026/20/11", orders[1].elapsed)
         assertEquals("Sin fecha", order(30, "Cliente", status = 1, date = 0).elapsed)
     }
 }

@@ -245,10 +245,11 @@ internal fun visibleToCurrentUser(
     if (role != UserRole.Client) orders
     else orders.filter { clientId != null && (it.clientId ?: it.client?.id) == clientId }
 
-/** Convierte la fecha de la API (yyyyMMdd) a dd/MM/yyyy. */
+/** Convierte la fecha de la API (yyyyddMM) a yyyy/dd/MM. */
 internal fun formatOrderDate(date: Int?): String? {
     val digits = date?.toString()?.takeIf { it.length == 8 && it.all(Char::isDigit) } ?: return null
-    return "${digits.substring(6, 8)}/${digits.substring(4, 6)}/${digits.substring(0, 4)}"
+    val text = "${digits.substring(0, 4)}/${digits.substring(4, 6)}/${digits.substring(6, 8)}"
+    return text.takeIf { dateToMillis(it) != null }
 }
 
 internal fun toOrder(

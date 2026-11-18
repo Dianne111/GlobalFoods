@@ -169,7 +169,7 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
         street = street,
         neighborhood = neighborhood,
         postalCode = postalCode,
-        deliveryDate = orderDateToText(order.date) ?: millisToDate(currentDateMillis()),
+        deliveryDate = formatOrderDate(order.date).orEmpty(),
         notes = observations.notes,
         shipping = delivery?.shippingCost?.takeIf { it > 0 }?.let(::formatQuantity).orEmpty(),
         deliveryMode = if (isPickup) "Recolección" else "Dirección",
@@ -210,11 +210,6 @@ private fun splitAddress(address: String): Triple<String, String, String> {
         .orEmpty()
     val neighborhood = if (parts.size >= 2) parts.removeAt(parts.lastIndex) else ""
     return Triple(parts.joinToString(", "), neighborhood, postalCode)
-}
-
-private fun orderDateToText(date: Int): String? {
-    val digits = date.toString().takeIf { it.length == 8 } ?: return null
-    return "${digits.substring(6, 8)}/${digits.substring(4, 6)}/${digits.substring(0, 4)}"
 }
 
 private fun formatQuantity(value: Double): String =
@@ -445,9 +440,11 @@ fun NewOrderScreen(
                     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
                     val total = products.sumOf { it.precio * (form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0) } +
                         form.shippingCost
-                    val date = form.deliveryDate.split('/').let {
-                        if (it.size == 3) "${it[2]}${it[1]}${it[0]}".toIntOrNull() else null
-                    } ?: 0
+                    val date = deliveryDateToApi(form.deliveryDate)
+                    if (date == null) {
+                        saveError = "Selecciona una fecha de entrega válida con formato AAAA/DD/MM."
+                        return@SummaryStep
+                    }
                     if (exceedsStock(form.quantities, products)) {
                         saveError = OUT_OF_STOCK_MESSAGE
                         return@SummaryStep
@@ -1108,7 +1105,7 @@ private fun DateField(value: String, onClick: () -> Unit) {
             onValueChange = {},
             readOnly = true,
             enabled = false,
-            label = { Text("Fecha de entrega") },
+            label = { Text("Fecha de entrega (AAAA/DD/MM)") },
             placeholder = { Text("Seleccionar fecha") },
             modifier = Modifier.fillMaxWidth(),
             trailingIcon = { Text("▣", color = Navy, modifier = Modifier.padding(end = 12.dp)) },
@@ -1188,12 +1185,17 @@ private fun DateSelectionDialog(
 private fun currentDateMillis(): Long =
     (kotlin.time.Clock.System.now().toEpochMilliseconds() / MILLIS_PER_DAY) * MILLIS_PER_DAY
 
-private fun dateToMillis(value: String): Long? {
-    if (!value.matches(Regex("\\d{2}/\\d{2}/\\d{4}"))) return null
+internal fun deliveryDateToApi(value: String): Int? {
+    if (dateToMillis(value) == null) return null
+    return value.replace("/", "").toIntOrNull()
+}
 
-    val day = value.substring(0, 2).toInt()
-    val month = value.substring(3, 5).toInt()
-    val year = value.substring(6, 10).toInt()
+internal fun dateToMillis(value: String): Long? {
+    if (!value.matches(Regex("\\d{4}/\\d{2}/\\d{2}"))) return null
+
+    val year = value.substring(0, 4).toInt()
+    val day = value.substring(5, 7).toInt()
+    val month = value.substring(8, 10).toInt()
 
     if (year !in 1900..2100 || month !in 1..12) return null
 
@@ -1208,14 +1210,14 @@ private fun dateToMillis(value: String): Long? {
     return daysFromCivil(year, month, day) * MILLIS_PER_DAY
 }
 
-private fun millisToDate(millis: Long): String {
+internal fun millisToDate(millis: Long): String {
     val (year, month, day) = civilFromDays(millis / MILLIS_PER_DAY)
     return buildString {
+        append(year.toString().padStart(4, '0'))
+        append('/')
         append(day.toString().padStart(2, '0'))
         append('/')
         append(month.toString().padStart(2, '0'))
-        append('/')
-        append(year.toString().padStart(4, '0'))
     }
 }
 

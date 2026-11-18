@@ -57,7 +57,10 @@ internal data class ClientMonthSummary(val active: Int, val deliveredThisMonth: 
  */
 internal fun clientMonthSummary(orders: List<Order>, yearMonth: Int): ClientMonthSummary {
     fun Order.status() = OrderStatus.fromCode(response?.status ?: 0)
-    fun Order.inMonth() = (response?.date ?: 0) / 100 == yearMonth
+    fun Order.inMonth(): Boolean {
+        val date = response?.date ?: return false
+        return date / 10000 == yearMonth / 100 && date % 100 == yearMonth % 100
+    }
     return ClientMonthSummary(
         active = orders.count { OrdersView.Active.includes(it) },
         deliveredThisMonth = orders.count { it.status() == OrderStatus.Delivered && it.inMonth() },

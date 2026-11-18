@@ -14,11 +14,11 @@ import kotlin.test.assertTrue
 
 class ClientViewTest {
     private val responses = listOf(
-        OrderResponse(id = 1, clientId = 7, status = 4, date = 20261105, totalKg = 10.0),
-        OrderResponse(id = 2, clientId = 7, status = 1, date = 20261120, totalKg = 5.5),
-        OrderResponse(id = 3, clientId = 8, status = 1, date = 20261120, totalKg = 3.0),
-        OrderResponse(id = 4, clientId = 7, status = 5, date = 20261112, totalKg = 99.0),
-        OrderResponse(id = 5, clientId = 7, status = 4, date = 20261030, totalKg = 20.0)
+        OrderResponse(id = 1, clientId = 7, status = 4, date = 20260511, totalKg = 10.0),
+        OrderResponse(id = 2, clientId = 7, status = 1, date = 20262011, totalKg = 5.5),
+        OrderResponse(id = 3, clientId = 8, status = 1, date = 20262011, totalKg = 3.0),
+        OrderResponse(id = 4, clientId = 7, status = 5, date = 20261211, totalKg = 99.0),
+        OrderResponse(id = 5, clientId = 7, status = 4, date = 20263010, totalKg = 20.0)
     )
 
     @Test
