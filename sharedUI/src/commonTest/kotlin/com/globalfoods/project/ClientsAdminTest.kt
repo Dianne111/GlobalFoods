@@ -44,11 +44,35 @@ class ClientsAdminTest {
     }
 
     @Test
+    fun onlyUndeliveredOrdersToTheBranchBlockItsDeactivation() {
+        val orders = listOf(
+            OrderResponse(id = 20, clientId = 1, branchId = 5, status = 1), // Creado
+            OrderResponse(id = 21, clientId = 1, branchId = 5, status = 3), // En reparto
+            OrderResponse(id = 22, clientId = 1, branchId = 5, status = 4), // Entregado
+            OrderResponse(id = 23, clientId = 1, branchId = 5, status = 5), // Cancelado
+            OrderResponse(id = 24, clientId = 1, branchId = 6, status = 2), // Otra sucursal
+            OrderResponse(id = 25, clientId = 1, branchId = null, status = 1) // Recolección
+        )
+        assertEquals(listOf(20, 21), pendingBranchOrders(orders, branchId = 5).map { it.id })
+        assertTrue(pendingBranchOrders(orders, branchId = 7).isEmpty())
+
+        val message = pendingBranchOrdersMessage("Centro", pendingBranchOrders(orders, branchId = 5))
+        assertEquals(
+            "La sucursal \"Centro\" tiene 2 pedidos en proceso (#20, #21). " +
+                "Podrá darse de baja cuando esos pedidos se entreguen o se cancelen.",
+            message
+        )
+    }
+
+    @Test
     fun pendingOrdersMessageListsTheOrders() {
         val one = pendingOrdersMessage("El Faro", listOf(OrderResponse(id = 7, clientId = 3)))
-        assertTrue("1 pedido pendiente" in one && "#7" in one)
+        assertEquals(
+            "\"El Faro\" tiene 1 pedido en proceso (#7). Podrá darse de baja cuando ese pedido se entregue o se cancele.",
+            one
+        )
 
         val many = pendingOrdersMessage("El Faro", (1..7).map { OrderResponse(id = it, clientId = 3) })
-        assertTrue("7 pedidos pendientes" in many && "#5" in many && "#6" !in many && "y 2 más" in many)
+        assertTrue("7 pedidos en proceso" in many && "#5" in many && "#6" !in many && "y 2 más" in many)
     }
 }
