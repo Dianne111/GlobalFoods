@@ -45,6 +45,7 @@ import com.globalfoods.project.sharedlogic.network.clients.ClientRepository
 import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.BranchRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import kotlinx.coroutines.launch
 
 private const val VISIBLE_CLIENT_ORDERS = 5
@@ -71,6 +72,8 @@ fun ClientDetailScreen(
 
     var editingClient by remember { mutableStateOf(false) }
     var confirmDeactivate by remember { mutableStateOf(false) }
+    /** Pedidos sin entregar que impiden la baja; si no es null se muestra el aviso. */
+    var blockingOrders by remember { mutableStateOf<List<OrderResponse>?>(null) }
     var editingBranch by remember { mutableStateOf<Branch?>(null) }
     var branchToDeactivate by remember { mutableStateOf<Branch?>(null) }
     var isSaving by remember { mutableStateOf(false) }
@@ -168,7 +171,10 @@ fun ClientDetailScreen(
                                 ) { Text("Editar datos") }
                                 if (current.isActive) {
                                     TextButton(
-                                        onClick = { confirmDeactivate = true },
+                                        onClick = {
+                                            val pending = pendingDeliveryOrders(orders.mapNotNull { it.response }, current.id)
+                                            if (pending.isEmpty()) confirmDeactivate = true else blockingOrders = pending
+                                        },
                                         enabled = !isSaving,
                                         colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
                                     ) { Text("Dar de baja") }
@@ -256,9 +262,26 @@ fun ClientDetailScreen(
                     onClick = {
                         isSaving = true
                         scope.launch {
-                            clientRepository.setActive(current, active = false).fold(
-                                onSuccess = { confirmDeactivate = false; onDeactivated() },
-                                onFailure = { confirmDeactivate = false; actionError = it.message }
+                            // Se vuelve a consultar por si se registró un pedido mientras la pantalla estaba abierta.
+                            val pending = orderRepository.getOrders().map { pendingDeliveryOrders(it, current.id) }
+                            pending.fold(
+                                onSuccess = { list ->
+                                    if (list.isNotEmpty()) {
+                                        confirmDeactivate = false
+                                        blockingOrders = list
+                                        reloadKey++
+                                    } else {
+                                        clientRepository.setActive(current, active = false).fold(
+                                            onSuccess = { confirmDeactivate = false; onDeactivated() },
+                                            onFailure = { confirmDeactivate = false; actionError = it.message }
+                                        )
+                                    }
+                                },
+                                onFailure = {
+                                    confirmDeactivate = false
+                                    actionError = "No se pudo verificar si el cliente tiene pedidos pendientes, " +
+                                        "así que no se dio de baja. ${it.message.orEmpty()}".trim()
+                                }
                             )
                             isSaving = false
                         }
@@ -266,6 +289,15 @@ fun ClientDetailScreen(
                 ) { Text("Dar de baja", color = Color(0xFFB91C1C)) }
             },
             dismissButton = { TextButton(onClick = { confirmDeactivate = false }, enabled = !isSaving) { Text("Cancelar") } }
+        )
+    }
+
+    blockingOrders?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { blockingOrders = null },
+            title = { Text("No se puede dar de baja al cliente") },
+            text = { Text(pendingOrdersMessage(current.name, pending)) },
+            confirmButton = { TextButton(onClick = { blockingOrders = null }) { Text("Aceptar") } }
         )
     }
 
