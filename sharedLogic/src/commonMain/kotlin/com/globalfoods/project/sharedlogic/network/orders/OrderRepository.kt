@@ -90,10 +90,11 @@ class OrderRepository {
     }
 
     suspend fun createOrder(order: OrderRequest): Result<OrderResponse> = request {
-        validate(order)
+        val initial = order.copy(paymentMethod = 0)
+        validate(initial)
         val response = globalFoodsClient.post("$baseUrl/pedidos") {
             contentType(ContentType.Application.Json)
-            setBody(order)
+            setBody(initial)
         }
         if (!response.status.isSuccess()) {
             error("La API rechazó el pedido: HTTP ${response.status.value}")
@@ -127,6 +128,7 @@ class OrderRepository {
     }
 
     private fun validate(order: OrderRequest) {
+        require(order.paymentMethod in 0..2) { "El método de pago no es válido." }
         require(order.date > 0) { "La fecha del pedido no es válida" }
         require(order.totalKg > 0.0) { "El total de kilos debe ser mayor que cero" }
         require(order.total > 0.0) { "El total del pedido debe ser mayor que cero" }

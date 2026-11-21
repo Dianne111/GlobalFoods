@@ -472,6 +472,7 @@ fun NewOrderScreen(
                         clientId = form.clientId.takeIf { form.clientType == "Cliente registrado" },
                         branchId = form.branchId.takeUnless { isPickup },
                         date = date,
+                        paymentMethod = orderToEdit?.paymentMethod ?: 0,
                         totalKg = totalKg,
                         total = total,
                         status = orderToEdit?.status ?: 1,
