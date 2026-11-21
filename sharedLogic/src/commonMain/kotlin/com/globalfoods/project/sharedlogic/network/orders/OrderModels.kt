@@ -67,7 +67,7 @@ data class OrderRequest(
 
 @Serializable
 data class OrderLineRequest(
-    @SerialName("codigoProducto") val productCode: Int,
+    @SerialName("CodigoProducto") val productCode: Int,
     @SerialName("Talla") val size: String,
     @SerialName("Cantidad") val quantity: Double,
     @SerialName("Precio") val price: Double,
