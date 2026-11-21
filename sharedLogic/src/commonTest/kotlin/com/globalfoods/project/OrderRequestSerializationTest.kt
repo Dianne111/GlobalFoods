@@ -34,8 +34,8 @@ class OrderRequestSerializationTest {
         assertEquals("12", body.getValue("IdCliente").jsonPrimitive.content)
         assertEquals("3", body.getValue("IdSucursal").jsonPrimitive.content)
         val line = body.getValue("lineas").jsonArray.single().jsonObject
-        assertEquals("101", line.getValue("codigoProducto").jsonPrimitive.content)
-        assertFalse(line.containsKey("CodigoProducto"))
+        assertEquals("101", line.getValue("CodigoProducto").jsonPrimitive.content)
+        assertFalse(line.containsKey("codigoProducto"))
         assertEquals("Mediano", line.getValue("Talla").jsonPrimitive.content)
     }
 
