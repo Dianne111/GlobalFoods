@@ -1,6 +1,7 @@
 package com.globalfoods.project.sharedlogic.network.orders
 
 import com.globalfoods.project.sharedlogic.network.core.ensureSuccess
+import com.globalfoods.project.sharedlogic.network.core.ensureWriteSuccess
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -96,9 +97,7 @@ class OrderRepository {
             contentType(ContentType.Application.Json)
             setBody(initial)
         }
-        if (!response.status.isSuccess()) {
-            error("La API rechazó el pedido: HTTP ${response.status.value}")
-        }
+        ensureWriteSuccess(response, "el pedido")
         response.body<OrderResponse>().also {
             require(it.id > 0) { "La API no devolvió el Id del pedido creado" }
         }
@@ -115,9 +114,7 @@ class OrderRepository {
             contentType(ContentType.Application.Json)
             setBody(order)
         }
-        if (!response.status.isSuccess()) {
-            error("La API rechazó los cambios del pedido: HTTP ${response.status.value}")
-        }
+        ensureWriteSuccess(response, "los cambios del pedido")
         try {
             response.body<OrderResponse>().takeIf { it.id == id }
         } catch (e: CancellationException) {
