@@ -31,7 +31,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -1132,16 +1131,9 @@ private fun DateSelectionDialog(
     onDismissRequest: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    val today = currentDateMillis()
-    val firstSelectableDate = today + MILLIS_PER_DAY
     val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = dateToMillis(initialValue)
-            ?.takeIf { it >= firstSelectableDate },
-        yearRange = 1900..2100,
-        selectableDates = object : SelectableDates {
-            override fun isSelectableDate(utcTimeMillis: Long): Boolean =
-                utcTimeMillis >= firstSelectableDate
-        }
+        initialSelectedDateMillis = dateToMillis(initialValue) ?: currentDateMillis(),
+        yearRange = 1900..2100
     )
     val selectedDate = datePickerState.selectedDateMillis
 
