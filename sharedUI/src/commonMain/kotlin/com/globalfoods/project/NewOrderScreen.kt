@@ -81,7 +81,6 @@ import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 private enum class NewOrderStep { Details, Catalog, Summary }
 
-private val freezerAddress = "Congeladora Global Foods México, Av. Principal 123, Guadalajara, Jalisco"
 private val customerBranches = listOf(
     "Sucursal Centro" to "Av. Juárez 120, Centro, Guadalajara, Jalisco",
     "Sucursal Norte" to "Av. Federalismo 850, Col. Lomas, Guadalajara, Jalisco"
@@ -151,7 +150,7 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
     val clientType = delivery?.clientType?.takeIf { it.isNotBlank() }
         ?: if (order.clientId != null) "Cliente registrado" else "Cliente esporádico"
     val isPickup = delivery?.method == "Recolección"
-    val address = if (isPickup) freezerAddress else delivery?.address.orEmpty()
+    val address = if (isPickup) PickupLocation.description else delivery?.address.orEmpty()
     val (street, neighborhood, postalCode) =
         if (!isPickup && clientType == "Cliente esporádico") splitAddress(address) else Triple("", "", "")
     return NewOrderFormState(
@@ -770,7 +769,7 @@ private fun DetailsStep(
                                     deliveryMode = mode,
                                     branchId = null,
                                     branch = if (mode == "Recolección") "Congeladora Global Foods" else "",
-                                    address = if (mode == "Recolección") freezerAddress else "",
+                                    address = if (mode == "Recolección") PickupLocation.description else "",
                                     street = if (mode == "Recolección") "" else form.street,
                                     neighborhood = if (mode == "Recolección") "" else form.neighborhood,
                                     postalCode = if (mode == "Recolección") "" else form.postalCode
@@ -784,7 +783,7 @@ private fun DetailsStep(
                 }
             }
             if (form.deliveryMode == "Recolección") {
-                AddressCard(freezerAddress, title = "Dirección de la congeladora")
+                AddressCard(PickupLocation.description, title = "Punto de recolección", mapsUrl = PickupLocation.mapsUrl)
             } else if (form.clientType == "Cliente registrado") {
                 BranchField(
                     value = form.branch,
@@ -922,7 +921,7 @@ private fun SummaryStep(
             Spacer(Modifier.height(8.dp))
             Text("UBICACIÓN DE ENTREGA", color = Gray, fontSize = 12.sp)
             Text(
-                if (form.deliveryMode == "Recolección") freezerAddress
+                if (form.deliveryMode == "Recolección") PickupLocation.description
                 else form.address.ifBlank { "Ubicación pendiente" },
                 color = Navy,
                 fontSize = 15.sp,
@@ -1072,7 +1071,7 @@ private fun buildAddress(street: String, neighborhood: String, postalCode: Strin
     ).filter(String::isNotBlank).joinToString(", ")
 
 @Composable
-private fun AddressCard(address: String, title: String = "Dirección de entrega") {
+private fun AddressCard(address: String, title: String = "Dirección de entrega", mapsUrl: String? = null) {
     val uriHandler = LocalUriHandler.current
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -1087,7 +1086,7 @@ private fun AddressCard(address: String, title: String = "Dirección de entrega"
             )
             TextButton(onClick = {
                 uriHandler.openUri(
-                    "https://www.google.com/maps/search/?api=1&query=${address.ifBlank { "Global Foods Mexico" }.replace(" ", "+")}"
+                    mapsUrl ?: "https://www.google.com/maps/search/?api=1&query=${address.ifBlank { "Global Foods Mexico" }.replace(" ", "+")}"
                 )
             }) {
                 Text("Revisar ubicación en Google Maps", color = Color(0xFF168BC1))
