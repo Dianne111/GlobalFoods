@@ -264,7 +264,12 @@ fun OrderDetailScreen(
                         OrderDetailField("Método de pago", paymentMethodLabel(response?.paymentMethod))
                         OrderDetailField("Método de entrega", deliveryMethod)
                         if (isPickup) {
-                            OrderDetailField("Punto de recolección", "Congeladora Global Foods México")
+                            OrderAddressField(PickupLocation.description, label = "Punto de recolección") {
+                                mapError = null
+                                if (!openAddress(PickupLocation.coordinates)) {
+                                    mapError = "No se pudo abrir el punto de recolección. Revisa las aplicaciones de mapas o el navegador."
+                                }
+                            }
                         } else {
                             if (response?.branchId != null || !branchName.isNullOrBlank()) {
                                 OrderDetailField("Sucursal", branchName)
@@ -275,9 +280,9 @@ fun OrderDetailScreen(
                                     mapError = "No se pudo abrir la dirección. Revisa las aplicaciones de mapas o el navegador."
                                 }
                             }
-                            mapError?.let { message ->
-                                Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-                            }
+                        }
+                        mapError?.let { message ->
+                            Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
                         }
                         delivery?.references?.takeIf { it.isNotBlank() }?.let {
                             OrderDetailField("Referencias", it)
@@ -367,7 +372,7 @@ fun OrderDetailScreen(
 }
 
 @Composable
-private fun OrderAddressField(address: String?, onOpenAddress: (String) -> Unit) {
+private fun OrderAddressField(address: String?, label: String = "Dirección de entrega", onOpenAddress: (String) -> Unit) {
     val destination = address?.trim().orEmpty()
     Column(
         modifier = Modifier
@@ -381,7 +386,7 @@ private fun OrderAddressField(address: String?, onOpenAddress: (String) -> Unit)
             )
             .padding(vertical = 4.dp)
     ) {
-        Text("Dirección de entrega", color = Gray, fontSize = 12.sp)
+        Text(label, color = Gray, fontSize = 12.sp)
         if (destination.isEmpty()) {
             Text("Sin dato registrado", color = Navy, fontSize = 14.sp)
         } else {
