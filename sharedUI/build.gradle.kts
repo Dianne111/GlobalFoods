@@ -51,6 +51,7 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
         }
     }
 }

@@ -183,8 +183,7 @@ fun DashboardScreen(
 }
 
 /**
- * Consulta los pedidos y los entrega primero tal como llegan; si a alguno le falta el nombre del cliente,
- * consulta el catálogo de clientes y los vuelve a entregar ya completos.
+ * Consulta los pedidos y completa cliente y destino mediante sus identificadores.
  */
 internal suspend fun loadOrders(
     orderRepository: OrderRepository,
@@ -207,19 +206,36 @@ internal suspend fun loadOrders(
                 return@fold
             }
             onOrders(response.map { toOrder(it) })
+            val clientsById = response.mapNotNull { it.client }.associateBy { it.id }.toMutableMap()
             val needsClients = response.any {
-                it.clientId != null && it.client?.name.isNullOrBlank() &&
-                    OrderObservations.decode(it.notes).delivery?.clientName.isNullOrBlank()
+                it.clientId != null && it.client?.name.isNullOrBlank()
             }
             if (needsClients) {
                 orderRepository.getClients().fold(
                     onSuccess = { clients ->
-                        val clientsById = clients.associateBy { it.id }
-                        onOrders(response.map { toOrder(it, clientsById) })
+                        clientsById.putAll(clients.associateBy { it.id })
                     },
                     onFailure = { onError("No se pudieron cargar los nombres de los clientes.") }
                 )
             }
+            val branchNames = mutableMapOf<Int, String>()
+            response.groupBy { it.clientId ?: it.client?.id }.forEach { (clientId, orders) ->
+                if (clientId == null || clientId <= 0) return@forEach
+                val requiredIds = orders.mapNotNull { it.branchId?.takeIf { id -> id > 0 } }.toSet()
+                if (requiredIds.isEmpty()) return@forEach
+                clientsById[clientId]?.branches?.filter { it.clientId == clientId }?.forEach {
+                    branchNames[it.id] = it.name
+                }
+                if (requiredIds.any { branchNames[it].isNullOrBlank() }) {
+                    orderRepository.getBranches(clientId).fold(
+                        onSuccess = { branches ->
+                            branches.filter { it.clientId == clientId }.forEach { branchNames[it.id] = it.name }
+                        },
+                        onFailure = { onError("No se pudieron cargar las sucursales de los pedidos.") }
+                    )
+                }
+            }
+            onOrders(response.map { toOrder(it, clientsById, branchNames) })
         },
         onFailure = { onError("No se pudieron cargar los pedidos.") }
     )
@@ -257,12 +273,12 @@ internal fun toOrder(
     clientsById: Map<Int, Client> = emptyMap(),
     branchNames: Map<Int, String> = emptyMap()
 ): Order {
-    val client = response.client?.takeIf { it.name.isNotBlank() }
-        ?: response.clientId?.let { clientsById[it] }
-        ?: response.client
+    val clientId = response.clientId ?: response.client?.id
+    val client = clientsById[clientId]?.takeIf { it.name.isNotBlank() }
+        ?: response.client?.takeIf { it.id == clientId }
     val delivery = OrderObservations.decode(response.notes).delivery
-    val clientName = delivery?.clientName?.takeIf { it.isNotBlank() }
-        ?: client?.name?.takeIf { it.isNotBlank() }
+    val clientName = client?.name?.takeIf { it.isNotBlank() }
+        ?: delivery?.clientName?.takeIf { it.isNotBlank() }
         ?: "Nombre no disponible"
     return Order(
         number = "#${response.id}",
@@ -278,9 +294,11 @@ internal fun toOrder(
         id = response.id,
         response = response.copy(client = client),
         destination = when {
-            delivery?.method == "Recolección" -> "Recolección"
-            !delivery?.branchName.isNullOrBlank() -> delivery?.branchName.orEmpty()
-            else -> response.branchId?.let(branchNames::get).orEmpty()
+            response.isPickupDelivery() -> "Recolección"
+            else -> response.branchId?.let { id ->
+                branchNames[id]?.takeIf { it.isNotBlank() }
+                    ?: client?.branches?.firstOrNull { it.id == id && it.clientId == clientId }?.name
+            }?.takeIf { it.isNotBlank() } ?: delivery?.branchName.orEmpty()
         }
     )
 }

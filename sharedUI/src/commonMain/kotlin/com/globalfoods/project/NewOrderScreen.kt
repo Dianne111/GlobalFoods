@@ -121,6 +121,22 @@ internal data class NewOrderFormState(
 internal const val OUT_OF_STOCK_MESSAGE =
     "No se cuenta con disponibilidad de la cantidad solicitada. Favor de comunicarse con su asesor de ventas."
 
+/** Los clientes registrados se relacionan por IdCliente e IdSucursal, sin metadatos en Observaciones. */
+internal fun NewOrderFormState.observationsForApi(): String {
+    if (clientType == "Cliente registrado") return notes
+    val isPickup = deliveryMode == "Recolección"
+    return OrderObservations(notes, OrderDeliveryInfo(
+        clientName = client.trim(),
+        clientType = clientType,
+        method = deliveryMode,
+        address = if (isPickup) "" else address,
+        phone = phone.trim(),
+        branchName = if (isPickup) "" else branch,
+        references = references,
+        shippingCost = shippingCost
+    )).encode()
+}
+
 /** true si algún producto pide más kilos de los disponibles en inventario. */
 internal fun exceedsStock(quantities: Map<String, String>, products: List<ArticuloInventario>): Boolean =
     products.any { (quantities[it.talla]?.toDoubleOrNull() ?: 0.0) > it.cantidadKg }
@@ -151,8 +167,11 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
     val delivery = observations.delivery
     val clientType = delivery?.clientType?.takeIf { it.isNotBlank() }
         ?: if (order.clientId != null) "Cliente registrado" else "Cliente esporádico"
-    val isPickup = delivery?.method == "Recolección"
-    val address = if (isPickup) freezerAddress else delivery?.address.orEmpty()
+    val isPickup = order.isPickupDelivery()
+    val linkedBranch = order.client?.branches?.firstOrNull {
+        it.id == order.branchId && it.clientId == (order.clientId ?: order.client?.id)
+    }
+    val address = if (isPickup) freezerAddress else linkedBranch?.address ?: delivery?.address.orEmpty()
     val (street, neighborhood, postalCode) =
         if (!isPickup && clientType == "Cliente esporádico") splitAddress(address) else Triple("", "", "")
     return NewOrderFormState(
@@ -161,17 +180,17 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
             .associate { it.size to formatQuantity(it.quantity) },
         clientId = order.clientId ?: order.client?.id,
         branchId = order.branchId.takeUnless { isPickup },
-        client = delivery?.clientName?.takeIf { it.isNotBlank() } ?: order.client?.name.orEmpty(),
+        client = order.client?.name?.takeIf { it.isNotBlank() } ?: delivery?.clientName.orEmpty(),
         clientType = clientType,
-        phone = delivery?.phone?.takeIf { it.isNotBlank() } ?: order.client?.phone.orEmpty(),
-        branch = if (isPickup) "Congeladora Global Foods" else delivery?.branchName.orEmpty(),
+        phone = order.client?.phone?.takeIf { it.isNotBlank() } ?: delivery?.phone.orEmpty(),
+        branch = if (isPickup) "Congeladora Global Foods" else linkedBranch?.name ?: delivery?.branchName.orEmpty(),
         address = address,
         street = street,
         neighborhood = neighborhood,
         postalCode = postalCode,
         deliveryDate = formatOrderDate(order.date).orEmpty(),
         notes = observations.notes,
-        shipping = delivery?.shippingCost?.takeIf { it > 0 }?.let(::formatQuantity).orEmpty(),
+        shipping = order.deliveryShippingCost()?.takeIf { it > 0 }?.let(::formatQuantity).orEmpty(),
         deliveryMode = if (isPickup) "Recolección" else "Dirección",
         references = delivery?.references.orEmpty()
     )
@@ -294,10 +313,15 @@ fun NewOrderScreen(
                 onSuccess = { branches ->
                     if (branchesRequestId == requestId && branchesClientId == clientId) {
                         // Al editar se conserva la sucursal original aunque ya no esté activa.
-                        selectedClientBranches = branches.filter { it.status == 1 || it.id == form.branchId }
+                        selectedClientBranches = branches.filter { it.clientId == clientId && (it.status == 1 || it.id == form.branchId) }
                         loadingBranches = false
                         // Al repetir un pedido, la sucursal original pudo haberse eliminado.
                         val current = form
+                        selectedClientBranches.firstOrNull { it.id == current.branchId }?.let { branch ->
+                            if (current.clientId == clientId && current.deliveryMode != "Recolección") {
+                                form = current.copy(branch = branch.name, address = branch.address)
+                            }
+                        }
                         if (!isEditing && current.branchId != null &&
                             selectedClientBranches.none { it.id == current.branchId }
                         ) {
@@ -455,16 +479,6 @@ fun NewOrderScreen(
                         return@SummaryStep
                     }
                     val isPickup = form.deliveryMode == "Recolección"
-                    val delivery = OrderDeliveryInfo(
-                        clientName = form.client.trim(),
-                        clientType = form.clientType,
-                        method = form.deliveryMode,
-                        address = if (isPickup) "" else form.address,
-                        phone = form.phone.trim(),
-                        branchName = if (isPickup) "" else form.branch,
-                        references = form.references,
-                        shippingCost = form.shippingCost
-                    )
                     val request = OrderRequest(
                         clientId = form.clientId.takeIf { form.clientType == "Cliente registrado" },
                         branchId = form.branchId.takeUnless { isPickup },
@@ -472,7 +486,7 @@ fun NewOrderScreen(
                         totalKg = totalKg,
                         total = total,
                         status = orderToEdit?.status ?: 1,
-                        notes = OrderObservations(form.notes, delivery).encode(),
+                        notes = form.observationsForApi(),
                         lines = products.map {
                             val quantity = form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0
                             OrderLineRequest(it.codigoProducto, it.talla, quantity, it.precio, quantity * it.precio)

@@ -71,7 +71,6 @@ fun OrderDetailScreen(
             return@LaunchedEffect
         }
         response = detail
-        val delivery = OrderObservations.decode(detail.notes).delivery
         val clientId = detail.clientId ?: detail.client?.id
         val ownClient = ownClientForSession()
         val embeddedClient = detail.client?.takeIf { it.id == clientId && it.name.isNotBlank() }
@@ -80,7 +79,7 @@ fun OrderDetailScreen(
         linkedClient = embeddedClient
         linkedBranch = null
         // Un cliente no consulta el catálogo de clientes; usa los datos de su sesión.
-        if (ownClient == null && clientId != null && delivery == null &&
+        if (ownClient == null && clientId != null &&
             (embeddedClient?.name.isNullOrBlank() || embeddedClient.phone.isBlank())
         ) {
             val clientsResult = repository.getClients()
@@ -90,8 +89,8 @@ fun OrderDetailScreen(
                 loadError = "No se pudieron cargar los datos del cliente."
             }
         }
-        val branchId = detail.branchId
-        if (branchId != null && delivery?.address.isNullOrBlank()) {
+        val branchId = detail.branchId?.takeIf { it > 0 }
+        if (branchId != null && !detail.isPickupDelivery()) {
             val branch = linkedClient?.branches?.firstOrNull { it.id == branchId && it.clientId == clientId }
             linkedBranch = branch
             if (clientId != null && branch?.address.isNullOrBlank()) {
@@ -110,16 +109,16 @@ fun OrderDetailScreen(
     val summary = remember(order, response) { response?.let { toOrder(it) } ?: order }
     val observations = remember(response?.notes) { OrderObservations.decode(response?.notes) }
     val delivery = observations.delivery
-    val clientName = delivery?.clientName?.takeIf { it.isNotBlank() }
-        ?: linkedClient?.name?.takeIf { it.isNotBlank() }
+    val clientName = linkedClient?.name?.takeIf { it.isNotBlank() }
+        ?: delivery?.clientName?.takeIf { it.isNotBlank() }
         ?: summary.client
-    val phone = delivery?.phone ?: linkedClient?.phone
-    val branchName = delivery?.branchName?.takeIf { it.isNotBlank() } ?: linkedBranch?.name
-    val address = delivery?.address?.takeIf { it.isNotBlank() } ?: linkedBranch?.address
-    val isPickup = delivery?.method == "Recolección"
+    val phone = linkedClient?.phone?.takeIf { it.isNotBlank() } ?: delivery?.phone
+    val branchName = linkedBranch?.name?.takeIf { it.isNotBlank() } ?: delivery?.branchName
+    val address = linkedBranch?.address?.takeIf { it.isNotBlank() } ?: delivery?.address
+    val isPickup = response?.isPickupDelivery() == true
     val deliveryMethod = when {
         isPickup -> "Recolección"
-        response?.branchId != null -> "Entrega a sucursal"
+        (response?.branchId ?: 0) > 0 -> "Entrega a sucursal"
         delivery?.method == "Dirección" -> "Envío a domicilio"
         else -> null
     }
@@ -185,7 +184,10 @@ fun OrderDetailScreen(
                         Spacer(Modifier.height(14.dp))
                         OrderStatusProgress(response?.orderStatus)
                         Spacer(Modifier.height(14.dp))
-                        delivery?.clientType?.let { Text(it, color = Gray, fontSize = 13.sp) }
+                        val clientType = if ((response?.clientId ?: response?.client?.id ?: 0) > 0) {
+                            "Cliente registrado"
+                        } else delivery?.clientType
+                        clientType?.takeIf { it.isNotBlank() }?.let { Text(it, color = Gray, fontSize = 13.sp) }
                         Spacer(Modifier.height(8.dp))
                         OrderDetailField("Celular", phone)
                         Spacer(modifier = Modifier.height(16.dp))
@@ -264,7 +266,7 @@ fun OrderDetailScreen(
                         if (isPickup) {
                             OrderDetailField("Punto de recolección", "Congeladora Global Foods México")
                         } else {
-                            if (response?.branchId != null || !branchName.isNullOrBlank()) {
+                            if ((response?.branchId ?: 0) > 0 || !branchName.isNullOrBlank()) {
                                 OrderDetailField("Sucursal", branchName)
                             }
                             OrderAddressField(address) { destination ->
@@ -281,7 +283,7 @@ fun OrderDetailScreen(
                             OrderDetailField("Referencias", it)
                         }
                         OrderDetailField("Observaciones", observations.notes, "Sin observaciones")
-                        OrderDetailField("Costo de envío", delivery?.shippingCost?.let { "$$it" })
+                        OrderDetailField("Costo de envío", response?.deliveryShippingCost()?.let { "$$it" })
                     }
                 }
             }
@@ -339,7 +341,7 @@ fun OrderDetailScreen(
                 if (sessionRol.canEditOrders) {
                     if (editable != null) {
                         Button(
-                            onClick = { onEdit(editable) },
+                            onClick = { onEdit(editable.copy(client = linkedClient ?: editable.client)) },
                             enabled = !isLoading && !isCancelling,
                             colors = ButtonDefaults.buttonColors(containerColor = Navy),
                             modifier = Modifier.fillMaxWidth().height(48.dp)
