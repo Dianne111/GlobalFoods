@@ -1,6 +1,5 @@
 package com.globalfoods.project.sharedlogic.network.dashboard
 
-import com.globalfoods.project.sharedlogic.network.core.errorMessageFor
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
 import io.ktor.client.call.*
 import io.ktor.client.request.*
@@ -17,12 +16,12 @@ class DashboardRepository {
                 val inventario: List<ArticuloInventario> = response.body()
                 Result.success(inventario)
             } else {
-                Result.failure(Exception(errorMessageFor(response.status.value, "el catálogo de productos")))
+                Result.failure(Exception("Error del servidor: ${response.status.value}"))
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
         } catch (e: Throwable) {
-            Result.failure(Exception("No se pudo conectar con el servidor para cargar el catálogo.", e))
+            e.printStackTrace()
+            // CAMBIO AQUÍ: Ahora la pantalla mostrará el error técnico real
+            Result.failure(Exception("Fallo técnico: ${e.message}"))
         }
     }
 }
