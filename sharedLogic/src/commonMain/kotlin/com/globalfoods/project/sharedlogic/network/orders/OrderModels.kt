@@ -90,16 +90,18 @@ data class OrderResponse(
 )
 
 /** El mismo pedido, sin cambios, pero con Estatus Cancelado (para PUT /api/pedidos/{id}). */
-fun cancellationRequest(order: OrderResponse): OrderRequest = OrderRequest(
-    clientId = order.clientId ?: order.client?.id,
-    branchId = order.branchId,
-    date = order.date,
-    totalKg = order.totalKg,
-    total = order.total,
-    status = OrderStatus.Cancelled.code,
-    notes = order.notes,
-    lines = order.lines.map { OrderLineRequest(it.productCode, it.size, it.quantity, it.price, it.subtotal) },
-    paymentMethod = order.paymentMethod ?: 0
+fun cancellationRequest(order: OrderResponse): OrderRequest = order.toRequest().copy(status = OrderStatus.Cancelled.code)
+
+fun OrderResponse.toRequest(): OrderRequest = OrderRequest(
+    clientId = clientId ?: client?.id,
+    branchId = branchId,
+    date = date,
+    totalKg = totalKg,
+    total = total,
+    status = status,
+    notes = notes,
+    lines = lines.map { OrderLineRequest(it.productCode, it.size, it.quantity, it.price, it.subtotal) },
+    paymentMethod = paymentMethod ?: 0
 )
 
 @Serializable
