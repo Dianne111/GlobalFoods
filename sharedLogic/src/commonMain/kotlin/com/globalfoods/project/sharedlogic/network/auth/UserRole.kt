@@ -7,7 +7,7 @@ enum class UserRole {
     Reports,
     Client;
 
-    /** Vendedores (empleados) y administradores registran el método de pago de un pedido entregado. */
+    /** Vendedores (empleados) y administradores registran el método de pago durante el reparto. */
     val canRegisterPayment: Boolean get() = this == Administrator || this == Employee
 
     /** El cliente no ve existencias: ni la tabla del dashboard ni los kilos disponibles del catálogo. */

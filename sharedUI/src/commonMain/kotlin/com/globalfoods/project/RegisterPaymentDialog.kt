@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,12 +42,23 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.globalfoods.project.sharedlogic.network.orders.OrderPaymentMethod
+import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
-internal fun RegisterPaymentDialog(order: Order, onDismissRequest: () -> Unit) {
-    var selectedMethod by remember(order.id) { mutableStateOf("Efectivo") }
+internal fun RegisterPaymentDialog(order: Order, onDismissRequest: () -> Unit, onConfirmed: (OrderResponse) -> Unit) {
+    var selectedMethod by remember(order.id) {
+        mutableStateOf(OrderPaymentMethod.fromCode(order.response?.paymentMethod) ?: OrderPaymentMethod.Cash)
+    }
+    var saving by remember(order.id) { mutableStateOf(false) }
+    var error by remember(order.id) { mutableStateOf<String?>(null) }
+    val repository = remember { OrderRepository() }
+    val scope = rememberCoroutineScope()
 
-    Dialog(onDismissRequest = onDismissRequest) {
+    Dialog(onDismissRequest = { if (!saving) onDismissRequest() }) {
         Surface(
             modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth(),
             shape = RoundedCornerShape(28.dp),
@@ -66,11 +78,12 @@ internal fun RegisterPaymentDialog(order: Order, onDismissRequest: () -> Unit) {
                         modifier = Modifier.fillMaxWidth().selectableGroup(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        listOf("Efectivo", "Tarjeta").forEach { method ->
+                        OrderPaymentMethod.entries.forEach { method ->
                             val isSelected = selectedMethod == method
                             OutlinedButton(
                                 onClick = { selectedMethod = method },
-                                modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { selected = isSelected },
+                                enabled = !saving,
+                                modifier = Modifier.weight(1f).heightIn(min = 64.dp).semantics { selected = isSelected },
                                 shape = RoundedCornerShape(24.dp),
                                 border = BorderStroke(1.dp, if (isSelected) Navy else Gray.copy(alpha = 0.5f)),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
@@ -79,7 +92,7 @@ internal fun RegisterPaymentDialog(order: Order, onDismissRequest: () -> Unit) {
                                     contentColor = if (isSelected) Color.White else Navy
                                 )
                             ) {
-                                Text(method, modifier = Modifier.weight(1f), fontSize = 14.sp, textAlign = TextAlign.Center)
+                                Text(method.label, modifier = Modifier.weight(1f), fontSize = 14.sp, textAlign = TextAlign.Center)
                                 if (isSelected) {
                                     Spacer(Modifier.width(6.dp))
                                     Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -88,19 +101,41 @@ internal fun RegisterPaymentDialog(order: Order, onDismissRequest: () -> Unit) {
                         }
                     }
                 }
+                error?.let {
+                    Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                }
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    TextButton(onClick = onDismissRequest) { Text("Cancelar", color = Gray) }
+                    TextButton(onClick = onDismissRequest, enabled = !saving) { Text("Cancelar", color = Gray) }
                     Button(
-                        onClick = {},
-                        // Solo interfaz: el guardado se integrará en una tarea posterior.
-                        enabled = false,
+                        onClick = {
+                            saving = true
+                            error = null
+                            val date = currentPaymentDate()
+                            val method = selectedMethod
+                            scope.launch {
+                                try {
+                                    val result = withTimeoutOrNull(30_000L) {
+                                        repository.registerPayment(order.id, method, date)
+                                    } ?: Result.failure(IllegalStateException(
+                                        "Se agotó el tiempo para confirmar el guardado. Actualiza el pedido antes de reintentar."
+                                    ))
+                                    result.fold(
+                                        onSuccess = onConfirmed,
+                                        onFailure = { error = it.message ?: "No se pudo actualizar el pago." }
+                                    )
+                                } finally {
+                                    saving = false
+                                }
+                            }
+                        },
+                        enabled = !saving,
                         shape = RoundedCornerShape(24.dp)
                     ) {
-                        Text("Confirmar pago")
+                        Text(if (saving) "Guardando…" else "Confirmar pago")
                     }
                 }
             }

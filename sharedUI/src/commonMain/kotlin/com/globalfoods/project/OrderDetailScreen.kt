@@ -28,6 +28,7 @@ import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.paymentMethodLabel
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
 import com.globalfoods.project.sharedlogic.network.orders.orderStatus
@@ -260,6 +261,7 @@ fun OrderDetailScreen(
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("ENTREGA Y OBSERVACIONES", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         OrderDetailField("Fecha de entrega", formatOrderDate(response?.date))
+                        OrderDetailField("Método de pago", paymentMethodLabel(response?.paymentMethod))
                         OrderDetailField("Método de entrega", deliveryMethod)
                         if (isPickup) {
                             OrderDetailField("Punto de recolección", "Congeladora Global Foods México")

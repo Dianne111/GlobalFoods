@@ -4,6 +4,7 @@ import com.globalfoods.project.sharedlogic.network.core.ensureSuccess
 import com.globalfoods.project.sharedlogic.network.core.ensureWriteSuccess
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
 import io.ktor.client.call.body
+import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -14,17 +15,18 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
 
-class OrderRepository {
+class OrderRepository internal constructor(private val client: HttpClient) {
+    constructor() : this(globalFoodsClient)
     private val baseUrl = "https://api.globalfoodsmexico.com/api"
 
     suspend fun getClients(): Result<List<Client>> = request {
-        val response = globalFoodsClient.get("$baseUrl/clientes/activos")
+        val response = client.get("$baseUrl/clientes/activos")
         ensureSuccess(response, "los clientes")
         response.body()
     }
 
     suspend fun getBranches(clientId: Int): Result<List<Branch>> = request {
-        val response = globalFoodsClient.get("$baseUrl/sucursales-clientes") {
+        val response = client.get("$baseUrl/sucursales-clientes") {
             header("X-Id-Cliente", clientId.toString())
         }
         ensureSuccess(response, "las sucursales")
@@ -32,7 +34,7 @@ class OrderRepository {
     }
     suspend fun createBranch(branch: BranchRequest): Result<Unit> = request {
         validate(branch)
-        val response = globalFoodsClient.post("$baseUrl/sucursales-clientes") {
+        val response = client.post("$baseUrl/sucursales-clientes") {
             contentType(ContentType.Application.Json)
             setBody(branch)
         }
@@ -41,7 +43,7 @@ class OrderRepository {
 
     suspend fun updateBranch(id: Int, branch: BranchRequest): Result<Unit> = request {
         validate(branch)
-        val response = globalFoodsClient.put("$baseUrl/sucursales-clientes/$id") {
+        val response = client.put("$baseUrl/sucursales-clientes/$id") {
             contentType(ContentType.Application.Json)
             setBody(branch)
         }
@@ -62,7 +64,7 @@ class OrderRepository {
             phone = branch.phone,
             status = if (active) 1 else 0
         )
-        val response = globalFoodsClient.put("$baseUrl/sucursales-clientes/${branch.id}") {
+        val response = client.put("$baseUrl/sucursales-clientes/${branch.id}") {
             contentType(ContentType.Application.Json)
             setBody(body)
         }
@@ -79,13 +81,13 @@ class OrderRepository {
     }
 
     suspend fun getOrders(): Result<List<OrderResponse>> = request {
-        val response = globalFoodsClient.get("$baseUrl/pedidos")
+        val response = client.get("$baseUrl/pedidos")
         ensureSuccess(response, "los pedidos")
         response.body()
     }
 
     suspend fun getOrder(id: Int): Result<OrderResponse> = request {
-        val response = globalFoodsClient.get("$baseUrl/pedidos/$id")
+        val response = client.get("$baseUrl/pedidos/$id")
         ensureSuccess(response, "el pedido")
         response.body()
     }
@@ -93,7 +95,7 @@ class OrderRepository {
     suspend fun createOrder(order: OrderRequest): Result<OrderResponse> = request {
         val initial = order.copy(paymentMethod = 0)
         validate(initial)
-        val response = globalFoodsClient.post("$baseUrl/pedidos") {
+        val response = client.post("$baseUrl/pedidos") {
             contentType(ContentType.Application.Json)
             setBody(initial)
         }
@@ -110,7 +112,7 @@ class OrderRepository {
     suspend fun updateOrder(id: Int, order: OrderRequest): Result<OrderResponse?> = request {
         require(id > 0) { "El pedido a editar no tiene un Id válido" }
         validate(order)
-        val response = globalFoodsClient.put("$baseUrl/pedidos/$id") {
+        val response = client.put("$baseUrl/pedidos/$id") {
             contentType(ContentType.Application.Json)
             setBody(order)
         }
@@ -121,6 +123,26 @@ class OrderRepository {
             throw e
         } catch (_: Exception) {
             null
+        }
+    }
+
+    suspend fun registerPayment(id: Int, method: OrderPaymentMethod, date: Int): Result<OrderResponse> = request {
+        // Se consulta la versión más reciente antes de reenviar el encabezado y las líneas.
+        val current = getOrder(id).getOrThrow()
+        val body = paymentRequest(current, method, date)
+        if (current.paymentMethod == method.code && current.date == date) {
+            // Reintento después de perder la confirmación de un guardado ya realizado.
+            current
+        } else {
+            updateOrder(id, body).getOrThrow()
+            val confirmed = getOrder(id).getOrThrow()
+            requireNotNull(confirmed.paymentMethod) {
+                "La API aceptó la actualización, pero la consulta del pedido no devolvió MetodoPago para confirmarla."
+            }
+            require(confirmed.paymentMethod == method.code && confirmed.date == date && confirmed.status == current.status) {
+                "La API no confirmó el método de pago, la fecha o el estado esperado. Actualiza el pedido antes de reintentar."
+            }
+            confirmed
         }
     }
 

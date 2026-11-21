@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
+import com.globalfoods.project.sharedlogic.network.orders.orderStatus
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 
 /** Ordena del pedido más reciente al más antiguo (por fecha de entrega y luego por número). */
@@ -164,7 +165,7 @@ fun OrdersScreen(
                         OrderCard(
                             order = order,
                             onClick = { onOrderSelected(order) },
-                            onRegisterPayment = if (sessionRol.canRegisterPayment && order.response?.status == OrderStatus.InDelivery.code) {
+                            onRegisterPayment = if (sessionRol.canRegisterPayment && order.response?.orderStatus?.acceptsPayment == true) {
                                 { paymentOrder = order }
                             } else null
                         )
@@ -176,7 +177,16 @@ fun OrdersScreen(
     }
 
     paymentOrder?.let { order ->
-        RegisterPaymentDialog(order = order, onDismissRequest = { paymentOrder = null })
+        RegisterPaymentDialog(
+            order = order,
+            onDismissRequest = { paymentOrder = null },
+            onConfirmed = { updated ->
+                val clients = orders.mapNotNull { it.response?.client }.associateBy { it.id }
+                orders = sortOrders(orders.map { if (it.id == updated.id) toOrder(updated, clients) else it })
+                paymentOrder = null
+                reloadKey++
+            }
+        )
     }
 }
 

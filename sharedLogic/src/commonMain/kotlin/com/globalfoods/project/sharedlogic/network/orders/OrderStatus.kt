@@ -17,8 +17,8 @@ enum class OrderStatus(val code: Int, val label: String) {
     /** Se puede cancelar mientras no se haya entregado (ni cancelado ya). */
     val isCancellable: Boolean get() = this == Created || this == Supplied || this == InDelivery
 
-    /** Al entregarse, el vendedor o administrador registra cómo pagó el cliente. */
-    val acceptsPayment: Boolean get() = this == Delivered
+    /** Durante el reparto se registra el pago, conservando el estado del pedido. */
+    val acceptsPayment: Boolean get() = this == InDelivery
 
     companion object {
         /** Etapas normales del pedido, en orden (Cancelado queda fuera del flujo). */

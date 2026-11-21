@@ -44,6 +44,7 @@ import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.paymentMethodLabel
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 internal val Navy = Color(0xFF143D58)
@@ -500,6 +501,8 @@ internal fun OrderCard(order: Order, onClick: () -> Unit, onRegisterPayment: (()
                     Spacer(Modifier.width(3.dp))
                     Text(order.elapsed, color = Gray, fontSize = 10.sp)
                 }
+                Spacer(Modifier.height(6.dp))
+                Text("Pago: ${paymentMethodLabel(order.response?.paymentMethod)}", color = Navy, fontSize = 12.sp)
                 if (onRegisterPayment != null) {
                     Spacer(Modifier.height(18.dp))
                     Button(
