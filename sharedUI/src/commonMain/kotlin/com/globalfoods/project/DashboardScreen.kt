@@ -466,7 +466,7 @@ internal fun DashboardNavigation(
 }
 
 @Composable
-internal fun OrderCard(order: Order, onClick: () -> Unit) {
+internal fun OrderCard(order: Order, onClick: () -> Unit, onRegisterPayment: (() -> Unit)? = null) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = CardShape,
@@ -499,6 +499,17 @@ internal fun OrderCard(order: Order, onClick: () -> Unit) {
                     Icon(Icons.Outlined.LocalShipping, null, tint = Gray, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(3.dp))
                     Text(order.elapsed, color = Gray, fontSize = 10.sp)
+                }
+                if (onRegisterPayment != null) {
+                    Spacer(Modifier.height(18.dp))
+                    Button(
+                        onClick = onRegisterPayment,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Navy, contentColor = Color.White)
+                    ) {
+                        Text("Registrar pago", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
         }
