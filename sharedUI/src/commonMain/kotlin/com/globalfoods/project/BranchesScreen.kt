@@ -72,6 +72,8 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
     var toDeactivate by remember { mutableStateOf<Branch?>(null) }
     var isSaving by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
+    /** Mensaje del aviso cuando la sucursal tiene pedidos pendientes y no se puede dar de baja. */
+    var blockedMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(clientId, reloadKey) {
         if (clientId == null) return@LaunchedEffect
@@ -194,8 +196,30 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
         BranchDeactivateDialog(
             branch = branch,
             saving = isSaving,
-            onConfirm = { runAction { repository.setBranchActive(branch, active = false) } },
+            onConfirm = {
+                isSaving = true
+                scope.launch {
+                    deactivateBranchIfNoPendingOrders(repository, branch).fold(
+                        onSuccess = { toDeactivate = null },
+                        onFailure = { e ->
+                            toDeactivate = null
+                            if (e is PendingOrdersException) blockedMessage = e.message else actionError = e.message
+                        }
+                    )
+                    reloadKey++
+                    isSaving = false
+                }
+            },
             onDismiss = { toDeactivate = null }
+        )
+    }
+
+    blockedMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { blockedMessage = null },
+            title = { Text("No se puede dar de baja la sucursal") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { blockedMessage = null }) { Text("Aceptar") } }
         )
     }
 
