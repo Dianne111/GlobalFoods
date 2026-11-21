@@ -32,6 +32,7 @@ import com.globalfoods.project.sharedlogic.network.orders.paymentMethodLabel
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
 import com.globalfoods.project.sharedlogic.network.orders.orderStatus
+import com.globalfoods.project.sharedlogic.network.orders.shippingCost
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import kotlinx.coroutines.launch
 
@@ -81,7 +82,8 @@ fun OrderDetailScreen(
         linkedClient = embeddedClient
         linkedBranch = null
         // Un cliente no consulta el catálogo de clientes; usa los datos de su sesión.
-        if (ownClient == null && clientId != null && delivery == null &&
+        if (ownClient == null && clientId != null &&
+            (delivery?.clientName.isNullOrBlank() || delivery?.phone.isNullOrBlank()) &&
             (embeddedClient?.name.isNullOrBlank() || embeddedClient.phone.isBlank())
         ) {
             val clientsResult = repository.getClients()
@@ -92,10 +94,10 @@ fun OrderDetailScreen(
             }
         }
         val branchId = detail.branchId
-        if (branchId != null && delivery?.address.isNullOrBlank()) {
+        if (branchId != null && (delivery?.address.isNullOrBlank() || delivery?.branchName.isNullOrBlank())) {
             val branch = linkedClient?.branches?.firstOrNull { it.id == branchId && it.clientId == clientId }
             linkedBranch = branch
-            if (clientId != null && branch?.address.isNullOrBlank()) {
+            if (clientId != null && (branch?.address.isNullOrBlank() || branch?.name.isNullOrBlank())) {
                 val branchesResult = repository.getBranches(clientId)
                 linkedBranch = branchesResult.getOrNull()?.firstOrNull {
                     it.id == branchId && it.clientId == clientId
@@ -114,7 +116,8 @@ fun OrderDetailScreen(
     val clientName = delivery?.clientName?.takeIf { it.isNotBlank() }
         ?: linkedClient?.name?.takeIf { it.isNotBlank() }
         ?: summary.client
-    val phone = delivery?.phone ?: linkedClient?.phone
+    val phone = delivery?.phone?.takeIf { it.isNotBlank() }
+        ?: linkedClient?.phone?.takeIf { it.isNotBlank() } ?: linkedBranch?.phone
     val branchName = delivery?.branchName?.takeIf { it.isNotBlank() } ?: linkedBranch?.name
     val address = delivery?.address?.takeIf { it.isNotBlank() } ?: linkedBranch?.address
     val isPickup = delivery?.method == "Recolección"
@@ -186,7 +189,9 @@ fun OrderDetailScreen(
                         Spacer(Modifier.height(14.dp))
                         OrderStatusProgress(response?.orderStatus)
                         Spacer(Modifier.height(14.dp))
-                        delivery?.clientType?.let { Text(it, color = Gray, fontSize = 13.sp) }
+                        val clientType = delivery?.clientType?.takeIf { it.isNotBlank() }
+                            ?: if ((response?.clientId ?: response?.client?.id ?: 0) > 0) "Cliente registrado" else null
+                        clientType?.let { Text(it, color = Gray, fontSize = 13.sp) }
                         Spacer(Modifier.height(8.dp))
                         OrderDetailField("Celular", phone)
                         Spacer(modifier = Modifier.height(16.dp))
@@ -288,7 +293,7 @@ fun OrderDetailScreen(
                             OrderDetailField("Referencias", it)
                         }
                         OrderDetailField("Observaciones", observations.notes, "Sin observaciones")
-                        OrderDetailField("Costo de envío", delivery?.shippingCost?.let { "$$it" })
+                        OrderDetailField("Costo de envío", response?.shippingCost?.let { "$$it" })
                     }
                 }
             }

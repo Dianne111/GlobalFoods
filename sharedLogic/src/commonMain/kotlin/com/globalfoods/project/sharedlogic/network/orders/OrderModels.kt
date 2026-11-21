@@ -104,6 +104,15 @@ fun OrderResponse.toRequest(): OrderRequest = OrderRequest(
     paymentMethod = paymentMethod ?: 0
 )
 
+/** Los totales conservan el envío aunque Observaciones use el formato de la web. */
+val OrderResponse.shippingCost: Double
+    get() {
+        OrderObservations.decode(notes).delivery?.shippingCost?.takeIf { it > 0 }?.let { return it }
+        if (lines.isEmpty()) return 0.0
+        val difference = (total - lines.sumOf { it.subtotal }).coerceAtLeast(0.0)
+        return kotlin.math.round(difference * 100) / 100
+    }
+
 @Serializable
 @OptIn(ExperimentalSerializationApi::class)
 data class OrderLineResponse(

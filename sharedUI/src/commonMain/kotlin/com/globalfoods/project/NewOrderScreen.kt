@@ -75,6 +75,7 @@ import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.OrderDeliveryInfo
 import com.globalfoods.project.sharedlogic.network.orders.OrderLineRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
+import com.globalfoods.project.sharedlogic.network.orders.shippingCost
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
@@ -150,7 +151,10 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
     val clientType = delivery?.clientType?.takeIf { it.isNotBlank() }
         ?: if (order.clientId != null) "Cliente registrado" else "Cliente esporádico"
     val isPickup = delivery?.method == "Recolección"
-    val address = if (isPickup) PickupLocation.description else delivery?.address.orEmpty()
+    val clientId = order.clientId ?: order.client?.id
+    val linkedBranch = order.client?.branches?.firstOrNull { it.id == order.branchId && it.clientId == clientId }
+    val address = if (isPickup) PickupLocation.description else delivery?.address?.takeIf { it.isNotBlank() }
+        ?: linkedBranch?.address.orEmpty()
     val (street, neighborhood, postalCode) =
         if (!isPickup && clientType == "Cliente esporádico") splitAddress(address) else Triple("", "", "")
     return NewOrderFormState(
@@ -161,15 +165,17 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
         branchId = order.branchId.takeUnless { isPickup },
         client = delivery?.clientName?.takeIf { it.isNotBlank() } ?: order.client?.name.orEmpty(),
         clientType = clientType,
-        phone = delivery?.phone?.takeIf { it.isNotBlank() } ?: order.client?.phone.orEmpty(),
-        branch = if (isPickup) "Congeladora Global Foods" else delivery?.branchName.orEmpty(),
+        phone = delivery?.phone?.takeIf { it.isNotBlank() } ?: order.client?.phone?.takeIf { it.isNotBlank() }
+            ?: linkedBranch?.phone.orEmpty(),
+        branch = if (isPickup) "Congeladora Global Foods" else delivery?.branchName?.takeIf { it.isNotBlank() }
+            ?: linkedBranch?.name.orEmpty(),
         address = address,
         street = street,
         neighborhood = neighborhood,
         postalCode = postalCode,
         deliveryDate = orderDateToText(order.date) ?: millisToDate(currentDateMillis()),
         notes = observations.notes,
-        shipping = delivery?.shippingCost?.takeIf { it > 0 }?.let(::formatQuantity).orEmpty(),
+        shipping = order.shippingCost.takeIf { it > 0 }?.let(::formatQuantity).orEmpty(),
         deliveryMode = if (isPickup) "Recolección" else "Dirección",
         references = delivery?.references.orEmpty()
     )
@@ -301,6 +307,15 @@ fun NewOrderScreen(
                         loadingBranches = false
                         // Al repetir un pedido, la sucursal original pudo haberse eliminado.
                         val current = form
+                        if (current.deliveryMode != "Recolección") {
+                            selectedClientBranches.firstOrNull { it.id == current.branchId }?.let { branch ->
+                                form = current.copy(
+                                    branch = current.branch.ifBlank { branch.name },
+                                    address = current.address.ifBlank { branch.address },
+                                    phone = current.phone.ifBlank { branch.phone }
+                                )
+                            }
+                        }
                         if (!isEditing && current.branchId != null &&
                             selectedClientBranches.none { it.id == current.branchId }
                         ) {
@@ -474,7 +489,10 @@ fun NewOrderScreen(
                         totalKg = totalKg,
                         total = total,
                         status = orderToEdit?.status ?: 1,
-                        notes = OrderObservations(form.notes, delivery).encode(),
+                        notes = OrderObservations(form.notes, delivery).let { observations ->
+                            if (form.clientType == "Cliente registrado") observations.encodeForWeb(date)
+                            else observations.encode()
+                        },
                         lines = products.map {
                             val quantity = form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0
                             OrderLineRequest(it.codigoProducto, it.talla, quantity, it.precio, quantity * it.precio)

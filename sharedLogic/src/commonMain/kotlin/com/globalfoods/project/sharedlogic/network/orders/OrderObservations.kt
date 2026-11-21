@@ -20,6 +20,29 @@ data class OrderObservations(
     val notes: String,
     val delivery: OrderDeliveryInfo? = null
 ) {
+    /** Formato que lee la web actual; no agrega campos al contrato de la API. */
+    fun encodeForWeb(date: Int): String {
+        val info = requireNotNull(delivery) { "Falta la modalidad del pedido." }
+        val mode = when (info.method) {
+            "Dirección" -> "A domicilio"
+            "Recolección" -> "Recolección en congeladora"
+            else -> error("La modalidad del pedido no es válida.")
+        }
+        val digits = date.toString()
+        require(digits.length == 8) { "La fecha del pedido no es válida." }
+        val formattedDate = "${digits.substring(6, 8)}/${digits.substring(4, 6)}/${digits.substring(0, 4)}"
+        return buildList {
+            add(mode)
+            add("Entrega $formattedDate")
+            if (info.method == "Dirección") {
+                if (info.address.isNotBlank()) add("Dir: ${info.address.trim()}")
+                if (info.references.isNotBlank()) add("Ref: ${info.references.trim()}")
+            }
+            if (notes.isNotBlank()) add(notes.trim())
+        }.joinToString(separator)
+    }
+
+    /** Se conserva para los clientes esporádicos; los registrados usan encodeForWeb. */
     fun encode(): String {
         val info = delivery ?: return notes
         val prefix = if (notes.isEmpty()) "" else "$notes\n"
@@ -27,7 +50,9 @@ data class OrderObservations(
     }
 
     companion object {
-        // Observaciones is the existing text field available for storing delivery details.
+        private const val separator = " · "
+        private val webDate = Regex("^Entrega (\\d{2})/(\\d{2})/(\\d{4})$")
+        // Compatibilidad de lectura con pedidos móviles anteriores.
         private const val deliveryMarker = "[GlobalFoods:Entrega:v1]\n"
         private val json = Json { ignoreUnknownKeys = true }
 
@@ -35,7 +60,7 @@ data class OrderObservations(
             val text = value.orEmpty()
             val markerIndex = text.lastIndexOf(deliveryMarker)
             if (markerIndex == -1 || (markerIndex > 0 && text[markerIndex - 1] != '\n')) {
-                return OrderObservations(text)
+                return decodeWeb(text) ?: OrderObservations(text)
             }
 
             return try {
@@ -47,6 +72,32 @@ data class OrderObservations(
             } catch (_: SerializationException) {
                 OrderObservations(text)
             }
+        }
+
+        private fun decodeWeb(text: String): OrderObservations? {
+            val parts = text.trim().split(separator)
+            val method = when (parts.firstOrNull()) {
+                "A domicilio" -> "Dirección"
+                "Recolección en congeladora" -> "Recolección"
+                else -> return null
+            }
+            if (!webDate.matches(parts.getOrNull(1).orEmpty())) return null
+            var address = ""
+            var references = ""
+            var index = 2
+            while (method == "Dirección" && index < parts.size) {
+                val part = parts[index]
+                when {
+                    address.isEmpty() && part.startsWith("Dir: ") -> address = part.removePrefix("Dir: ").trim()
+                    references.isEmpty() && part.startsWith("Ref: ") -> references = part.removePrefix("Ref: ").trim()
+                    else -> break
+                }
+                index++
+            }
+            return OrderObservations(
+                notes = parts.drop(index).joinToString(separator).trim(),
+                delivery = OrderDeliveryInfo("", "", method, address, references = references)
+            )
         }
     }
 }

@@ -2,6 +2,7 @@ package com.globalfoods.project
 
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import com.globalfoods.project.sharedlogic.network.orders.Client
+import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.OrderDeliveryInfo
 import com.globalfoods.project.sharedlogic.network.orders.OrderLineResponse
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
@@ -10,6 +11,42 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class EditOrderFormTest {
+    @Test
+    fun rebuildsRegisteredWebOrdersUsingCatalogDataAndKeepsShippingAndNotes() {
+        val client = Client(
+            id = 42, name = "María López", phonePascal = "3312345678",
+            branchesPascal = listOf(Branch(id = 7, clientId = 42, name = "Sucursal Centro", address = "Av. Juárez 120"))
+        )
+        val form = formFromOrder(OrderResponse(
+            id = 10, clientId = 42, branchId = 7, date = 20261125, client = client,
+            total = 1330.0, lines = listOf(OrderLineResponse(size = "Mediano", quantity = 5.0, subtotal = 1250.0)),
+            notes = "A domicilio · Entrega 25/11/2026 · Tocar el timbre"
+        ))
+        assertEquals("Cliente registrado", form.clientType)
+        assertEquals("María López", form.client)
+        assertEquals("3312345678", form.phone)
+        assertEquals(7, form.branchId)
+        assertEquals("Sucursal Centro", form.branch)
+        assertEquals("Av. Juárez 120", form.address)
+        assertEquals("Dirección", form.deliveryMode)
+        assertEquals("25/11/2026", form.deliveryDate)
+        assertEquals("Tocar el timbre", form.notes)
+        assertEquals("80", form.shipping)
+    }
+
+    @Test
+    fun webPickupUsesTheRealFreezerAndRetainsTheCurrentFechaField() {
+        val form = formFromOrder(OrderResponse(
+            id = 11, clientId = 42, branchId = 7, date = 20261126,
+            notes = "Recolección en congeladora · Entrega 25/11/2026 · Llamar"
+        ))
+        assertEquals("Recolección", form.deliveryMode)
+        assertEquals(null, form.branchId)
+        assertEquals(PickupLocation.description, form.address)
+        assertEquals("26/11/2026", form.deliveryDate)
+        assertEquals("Llamar", form.notes)
+    }
+
     @Test
     fun rebuildsTheFormOfARegisteredClientOrder() {
         val order = OrderResponse(

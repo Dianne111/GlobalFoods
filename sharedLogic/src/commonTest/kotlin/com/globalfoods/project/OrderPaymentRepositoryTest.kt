@@ -2,6 +2,8 @@ package com.globalfoods.project
 
 import com.globalfoods.project.sharedlogic.network.orders.OrderLineResponse
 import com.globalfoods.project.sharedlogic.network.orders.OrderPaymentMethod
+import com.globalfoods.project.sharedlogic.network.orders.OrderDeliveryInfo
+import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
@@ -19,8 +21,10 @@ import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class OrderPaymentRepositoryTest {
@@ -31,6 +35,27 @@ class OrderPaymentRepositoryTest {
     )
     private val headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
     private fun client(engine: MockEngine) = HttpClient(engine) { install(ContentNegotiation) { json() } }
+
+    @Test
+    fun postsWebCompatibleObservationsUsingOnlyTheExistingApiFields() = runBlocking<Unit> {
+        val notes = OrderObservations("Llamar", OrderDeliveryInfo("Cliente", "Cliente registrado", "Dirección", "Calle 1"))
+            .encodeForWeb(20261125)
+        val client = client(MockEngine { request ->
+            assertEquals(HttpMethod.Post, request.method)
+            val text = (request.body as TextContent).text
+            val sent = Json.decodeFromString<OrderRequest>(text)
+            assertEquals("A domicilio · Entrega 25/11/2026 · Dir: Calle 1 · Llamar", sent.notes)
+            assertEquals(20261125, sent.date)
+            assertEquals(0, sent.paymentMethod)
+            val keys = Json.parseToJsonElement(text).jsonObject.keys
+            assertFalse("Modalidad" in keys)
+            assertFalse("FechaEntrega" in keys)
+            respond(Json.encodeToString(OrderResponse.serializer(), original.copy(date = sent.date, notes = sent.notes)), headers = headers)
+        })
+        try {
+            OrderRepository(client).createOrder(original.toRequest().copy(date = 20261125, notes = notes, status = 1)).getOrThrow()
+        } finally { client.close() }
+    }
 
     @Test
     fun creatingAnOrderStillSendsZeroEvenIfAnotherMethodWasProvided() = runBlocking {

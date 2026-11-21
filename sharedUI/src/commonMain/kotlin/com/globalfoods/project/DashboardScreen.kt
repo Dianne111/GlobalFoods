@@ -212,15 +212,27 @@ internal suspend fun loadOrders(
                 it.clientId != null && it.client?.name.isNullOrBlank() &&
                     OrderObservations.decode(it.notes).delivery?.clientName.isNullOrBlank()
             }
+            var clientsById = emptyMap<Int, Client>()
             if (needsClients) {
                 orderRepository.getClients().fold(
                     onSuccess = { clients ->
-                        val clientsById = clients.associateBy { it.id }
+                        clientsById = clients.associateBy { it.id }
                         onOrders(response.map { toOrder(it, clientsById) })
                     },
                     onFailure = { onError("No se pudieron cargar los nombres de los clientes.") }
                 )
             }
+            // El formato web no duplica el nombre de la sucursal dentro de Observaciones.
+            val branchNames = mutableMapOf<Int, String>()
+            val clientsWithBranches = response.filter {
+                (it.branchId ?: 0) > 0 && OrderObservations.decode(it.notes).delivery?.branchName.isNullOrBlank()
+            }.mapNotNull { it.clientId ?: it.client?.id }.distinct()
+            for (clientId in clientsWithBranches) {
+                orderRepository.getBranches(clientId).onSuccess { branches ->
+                    branchNames.putAll(branches.associate { it.id to it.name })
+                }
+            }
+            onOrders(response.map { toOrder(it, clientsById, branchNames) })
         },
         onFailure = { onError("No se pudieron cargar los pedidos.") }
     )
@@ -280,7 +292,9 @@ internal fun toOrder(
         destination = when {
             delivery?.method == "Recolección" -> "Recolección"
             !delivery?.branchName.isNullOrBlank() -> delivery?.branchName.orEmpty()
-            else -> response.branchId?.let(branchNames::get).orEmpty()
+            else -> response.branchId?.let { id ->
+                branchNames[id] ?: client?.branches?.firstOrNull { it.id == id && it.clientId == client.id }?.name
+            }.orEmpty()
         }
     )
 }
