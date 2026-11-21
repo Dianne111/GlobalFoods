@@ -51,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.clients.ClientRepository
+import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
+import com.globalfoods.project.sharedlogic.network.orders.orderStatus
 import kotlinx.coroutines.launch
 
 internal enum class ClientsView(val label: String) { Active("Activos"), Inactive("Inactivos") }
@@ -69,6 +71,23 @@ internal fun searchClients(clients: List<AdminClient>, query: String): List<Admi
 
 internal fun sortClients(clients: List<AdminClient>): List<AdminClient> =
     clients.sortedBy { it.name.trim().lowercase() }
+
+/**
+ * Pedidos del cliente [clientId] que todavía no se entregan (Creado, Surtido o En reparto).
+ * Mientras tenga alguno no se le puede dar de baja.
+ */
+internal fun pendingDeliveryOrders(orders: List<OrderResponse>, clientId: Int): List<OrderResponse> =
+    orders.filter { (it.clientId ?: it.client?.id) == clientId && it.orderStatus?.isCancellable == true }
+
+/** Texto del aviso que impide dar de baja a un cliente con pedidos pendientes. */
+internal fun pendingOrdersMessage(clientName: String, pending: List<OrderResponse>): String {
+    val count = pending.size
+    val numbers = pending.sortedBy { it.id }.take(5).joinToString(", ") { "#${it.id}" } +
+        if (count > 5) " y ${count - 5} más" else ""
+    val orders = if (count == 1) "1 pedido pendiente" else "$count pedidos pendientes"
+    return "\"${clientName.ifBlank { "Este cliente" }}\" tiene $orders por entregar ($numbers). " +
+        "Entrégalos o cancélalos antes de darlo de baja."
+}
 
 @Composable
 fun ClientsScreen(
