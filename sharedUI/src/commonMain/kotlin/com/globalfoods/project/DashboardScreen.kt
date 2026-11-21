@@ -35,16 +35,8 @@ import globalfoods.sharedui.generated.resources.global_foods_logo
 import org.jetbrains.compose.resources.painterResource
 
 // Imports de red
-import com.globalfoods.project.sharedlogic.network.auth.UserRole
-import com.globalfoods.project.sharedlogic.network.core.sessionIdCliente
-import com.globalfoods.project.sharedlogic.network.core.sessionNombreUsuario
-import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.dashboard.DashboardRepository
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
-import com.globalfoods.project.sharedlogic.network.orders.Client
-import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
-import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
-import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 internal val Navy = Color(0xFF143D58)
 internal val Background = Color(0xFFF1F8FA)
@@ -57,26 +49,16 @@ private val InventoryHeaderColor = Color(0xFFF8FAFC)
 private val InventoryHeaders = listOf("TALLA", "PRECIO", "MASTER", "STOCK")
 
 @Composable
-fun DashboardScreen(
-    refreshKey: Int = 0,
-    onOrderSelected: (Order) -> Unit = {},
-    onNewOrder: () -> Unit = {},
-    onLogout: () -> Unit = {},
-    onTabSelected: (MainTab) -> Unit = {}
-) {
+fun DashboardScreen(onOrderSelected: (String) -> Unit = {}) {
     val listState = rememberLazyListState()
 
     val dashboardRepository = remember { DashboardRepository() }
-    val orderRepository = remember { OrderRepository() }
 
     var inventarioList by remember { mutableStateOf<List<ArticuloInventario>>(emptyList()) }
     var isLoadingInventario by remember { mutableStateOf(true) }
     var errorMensaje by remember { mutableStateOf<String?>(null) }
-    var orderItems by remember { mutableStateOf<List<Order>>(emptyList()) }
-    var orderError by remember { mutableStateOf<String?>(null) }
-    var ordersReloadKey by remember { mutableStateOf(0) }
 
-    LaunchedEffect(refreshKey) {
+    LaunchedEffect(Unit) {
         val resultado = dashboardRepository.obtenerInventario()
         isLoadingInventario = false
 
@@ -86,19 +68,10 @@ fun DashboardScreen(
         )
     }
 
-    LaunchedEffect(refreshKey, ordersReloadKey) {
-        orderError = null
-        loadOrders(
-            orderRepository,
-            onOrders = { orderItems = it },
-            onError = { orderError = it }
-        )
-    }
-
     Scaffold(
         containerColor = Background,
-        topBar = { DashboardHeader(onLogout) },
-        bottomBar = { DashboardNavigation(MainTab.Inicio, onTabSelected) }
+        topBar = { DashboardHeader() },
+        bottomBar = { DashboardNavigation() }
     ) { insets ->
         Box(
             modifier = Modifier
@@ -120,7 +93,7 @@ fun DashboardScreen(
                 ) {
                     item {
                         Spacer(Modifier.height(16.dp))
-                        NewOrderButton(onClick = onNewOrder)
+                        NewOrderButton()
                         Spacer(Modifier.height(17.dp))
                         SectionLabel("INVENTARIO")
                         Spacer(Modifier.height(8.dp))
@@ -136,29 +109,12 @@ fun DashboardScreen(
                         }
 
                         Spacer(Modifier.height(18.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SectionLabel("PEDIDOS ACTUALES")
-                            Spacer(Modifier.weight(1f))
-                            // Los estados vienen de la API; este botón vuelve a consultarlos.
-                            TextButton(onClick = { ordersReloadKey++ }) {
-                                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Actualizar", fontSize = 12.sp)
-                            }
-                        }
+                        SectionLabel("PEDIDOS ACTUALES")
+                        Spacer(Modifier.height(8.dp))
                     }
 
-                    orderError?.let { message ->
-                        item {
-                            Column {
-                                Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-                                TextButton(onClick = { ordersReloadKey++ }) { Text("Reintentar") }
-                            }
-                        }
-                    }
-
-                    items(orderItems) { order ->
-                        OrderCard(order, onClick = { onOrderSelected(order) })
+                    items(orders) { order ->
+                        OrderCard(order, onClick = { onOrderSelected(order.number) })
                         Spacer(Modifier.height(10.dp))
                     }
 
@@ -174,114 +130,10 @@ fun DashboardScreen(
                             textAlign = TextAlign.Center
                         )
                     }
-
                 }
             }
-
         }
     }
-}
-
-/**
- * Consulta los pedidos y los entrega primero tal como llegan; si a alguno le falta el nombre del cliente,
- * consulta el catálogo de clientes y los vuelve a entregar ya completos.
- */
-internal suspend fun loadOrders(
-    orderRepository: OrderRepository,
-    onOrders: (List<Order>) -> Unit,
-    onError: (String) -> Unit
-) {
-    orderRepository.getOrders().fold(
-        onSuccess = { all ->
-            val response = visibleToCurrentUser(all)
-            // Un cliente no puede (ni debe) consultar el catálogo de clientes: sus pedidos llevan su propio nombre.
-            val ownClient = ownClientForSession()
-            if (ownClient != null) {
-                val clients = mapOf(ownClient.id to ownClient)
-                onOrders(response.map { toOrder(it, clients) })
-                // Sus sucursales dan el nombre del destino a los pedidos que solo traen IdSucursal.
-                orderRepository.getBranches(ownClient.id).onSuccess { branches ->
-                    val names = branches.associate { it.id to it.name }
-                    onOrders(response.map { toOrder(it, clients, names) })
-                }
-                return@fold
-            }
-            onOrders(response.map { toOrder(it) })
-            val needsClients = response.any {
-                it.clientId != null && it.client?.name.isNullOrBlank() &&
-                    OrderObservations.decode(it.notes).delivery?.clientName.isNullOrBlank()
-            }
-            if (needsClients) {
-                orderRepository.getClients().fold(
-                    onSuccess = { clients ->
-                        val clientsById = clients.associateBy { it.id }
-                        onOrders(response.map { toOrder(it, clientsById) })
-                    },
-                    onFailure = { onError("No se pudieron cargar los nombres de los clientes.") }
-                )
-            }
-        },
-        onFailure = { onError("No se pudieron cargar los pedidos.") }
-    )
-}
-
-/** Para el rol Cliente, su propio cliente armado con los datos de la sesión; null para los demás roles. */
-internal fun ownClientForSession(
-    role: UserRole = sessionRol,
-    clientId: Int? = sessionIdCliente,
-    userName: String? = sessionNombreUsuario
-): Client? =
-    if (role == UserRole.Client && clientId != null) Client(id = clientId, name = userName.orEmpty()) else null
-
-/**
- * Un Cliente solo ve sus pedidos. Esto es solo para la pantalla: la protección real debe hacerla
- * la API filtrando por el IdCliente del token. Sin IdCliente en la sesión no se muestra ninguno.
- */
-internal fun visibleToCurrentUser(
-    orders: List<OrderResponse>,
-    role: UserRole = sessionRol,
-    clientId: Int? = sessionIdCliente
-): List<OrderResponse> =
-    if (role != UserRole.Client) orders
-    else orders.filter { clientId != null && (it.clientId ?: it.client?.id) == clientId }
-
-/** Convierte la fecha de la API (yyyyMMdd) a dd/MM/yyyy. */
-internal fun formatOrderDate(date: Int?): String? {
-    val digits = date?.toString()?.takeIf { it.length == 8 && it.all(Char::isDigit) } ?: return null
-    return "${digits.substring(6, 8)}/${digits.substring(4, 6)}/${digits.substring(0, 4)}"
-}
-
-internal fun toOrder(
-    response: OrderResponse,
-    clientsById: Map<Int, Client> = emptyMap(),
-    branchNames: Map<Int, String> = emptyMap()
-): Order {
-    val client = response.client?.takeIf { it.name.isNotBlank() }
-        ?: response.clientId?.let { clientsById[it] }
-        ?: response.client
-    val delivery = OrderObservations.decode(response.notes).delivery
-    val clientName = delivery?.clientName?.takeIf { it.isNotBlank() }
-        ?: client?.name?.takeIf { it.isNotBlank() }
-        ?: "Nombre no disponible"
-    return Order(
-        number = "#${response.id}",
-        client = clientName,
-        total = "$${response.total}",
-        items = "${response.lines.size} Items",
-        status = statusLabel(response.status),
-        statusColor = statusColor(response.status),
-        elapsed = formatOrderDate(response.date)?.let { "Entrega $it" } ?: "Sin fecha",
-        accent = statusColor(response.status),
-        totalKg = "${response.totalKg} kg",
-        products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) },
-        id = response.id,
-        response = response.copy(client = client),
-        destination = when {
-            delivery?.method == "Recolección" -> "Recolección"
-            !delivery?.branchName.isNullOrBlank() -> delivery?.branchName.orEmpty()
-            else -> response.branchId?.let(branchNames::get).orEmpty()
-        }
-    )
 }
 
 @Composable
@@ -346,24 +198,7 @@ private fun InventoryTable(articulos: List<ArticuloInventario>) {
 }
 
 @Composable
-private fun DashboardHeader(onLogout: () -> Unit) {
-    var showSettings by remember { mutableStateOf(false) }
-
-    if (showSettings) {
-        AlertDialog(
-            onDismissRequest = { showSettings = false },
-            title = { Text("Configuración", color = Navy, fontWeight = FontWeight.Bold) },
-            text = {
-                TextButton(onClick = onLogout) {
-                    Icon(Icons.Outlined.Logout, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Cerrar sesión")
-                }
-            },
-            confirmButton = {}
-        )
-    }
-
+private fun DashboardHeader() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -381,7 +216,7 @@ private fun DashboardHeader(onLogout: () -> Unit) {
             )
             Spacer(Modifier.weight(1f))
             IconButton(
-                onClick = { showSettings = true },
+                onClick = {},
                 modifier = Modifier.size(32.dp).background(Color.White.copy(alpha = .12f), RoundedCornerShape(50))
             ) {
                 Icon(Icons.Outlined.Settings, "Configuración", tint = Color.White, modifier = Modifier.size(19.dp))
@@ -394,10 +229,9 @@ private fun DashboardHeader(onLogout: () -> Unit) {
 }
 
 @Composable
-private fun NewOrderButton(onClick: () -> Unit) {
+private fun NewOrderButton() {
     Box(
-        modifier = Modifier.fillMaxWidth().height(40.dp).clip(CardShape).background(Green)
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().height(40.dp).clip(CardShape).background(Green),
         contentAlignment = Alignment.Center
     ) {
         Text("+  Nuevo Pedido", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -422,60 +256,39 @@ private fun RowScope.TableCell(value: String, isHeader: Boolean) {
     )
 }
 
-enum class MainTab(val label: String) {
-    Inicio("INICIO"),
-    Pedidos("PEDIDOS"),
-    Clientes("CLIENTES"),
-    Sucursales("SUCURSALES")
-}
-
-/** Pestañas que ve cada rol. El cliente administra sus sucursales en lugar del catálogo de clientes. */
-internal fun tabsFor(role: UserRole): List<MainTab> = when (role) {
-    UserRole.Administrator, UserRole.Employee -> listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Clientes)
-    UserRole.Client -> listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Sucursales)
-    UserRole.Reports -> listOf(MainTab.Inicio)
-}
-
-private val MainTab.icon
-    get() = when (this) {
-        MainTab.Inicio -> Icons.Outlined.Home
-        MainTab.Pedidos -> Icons.Outlined.ReceiptLong
-        MainTab.Clientes -> Icons.Outlined.People
-        MainTab.Sucursales -> Icons.Outlined.Storefront
-    }
-
 @Composable
-internal fun DashboardNavigation(
-    selected: MainTab = MainTab.Inicio,
-    onTabSelected: (MainTab) -> Unit = {}
-) {
+internal fun DashboardNavigation() {
+    val items = listOf(
+        "INICIO" to Icons.Outlined.Home,
+        "CLIENTES" to Icons.Outlined.People,
+        "REPORTES" to Icons.Outlined.BarChart
+    )
     NavigationBar(
         modifier = Modifier.navigationBarsPadding().height(66.dp),
         containerColor = Color.White,
         tonalElevation = 0.dp
     ) {
-        tabsFor(sessionRol).forEach { tab ->
+        items.forEachIndexed { index, (label, icon) ->
             NavigationBarItem(
-                selected = tab == selected,
-                onClick = { if (tab != selected) onTabSelected(tab) },
-                icon = { Icon(tab.icon, tab.label, modifier = Modifier.size(19.dp)) },
-                label = { Text(tab.label, fontSize = 8.sp) }
+                selected = index == 0,
+                onClick = {},
+                icon = { Icon(icon, label, modifier = Modifier.size(19.dp)) },
+                label = { Text(label, fontSize = 8.sp) }
             )
         }
     }
 }
 
 @Composable
-internal fun OrderCard(order: Order, onClick: () -> Unit) {
+private fun OrderCard(order: Order, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().height(86.dp).clickable(onClick = onClick),
         shape = CardShape,
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        // La altura la define el contenido (antes era fija y se cortaba el tercer renglón).
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            Box(Modifier.width(4.dp).fillMaxHeight().background(order.accent))
+        Row(Modifier.fillMaxSize()) {
+            Box(Modifier.width(4.dp).fillMaxSize().background(order.accent))
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp).fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(order.number, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -483,14 +296,8 @@ internal fun OrderCard(order: Order, onClick: () -> Unit) {
                 }
                 Spacer(Modifier.height(5.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // El cliente ya sabe que los pedidos son suyos: se le muestra a dónde van.
-                    val (label, value) = if (sessionRol == UserRole.Client) {
-                        "Entrega en: " to order.destination.ifBlank { "Sucursal no indicada" }
-                    } else {
-                        "Cliente: " to order.client
-                    }
-                    Text(label, color = Gray, fontSize = 10.sp)
-                    Text(value, color = Navy, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("Cliente: ", color = Gray, fontSize = 10.sp)
+                    Text(order.client, color = Navy, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     Text("Total: ${order.total}  ›", color = Navy, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(6.dp))
@@ -509,7 +316,7 @@ internal fun OrderCard(order: Order, onClick: () -> Unit) {
 data class OrderProduct(
     val name: String,
     val price: Double,
-    val quantity: Double,
+    val quantity: Int,
     val subtotal: Double
 )
 
@@ -523,11 +330,7 @@ data class Order(
     val elapsed: String,
     val accent: Color,
     val totalKg: String = "0 kg",
-    val products: List<OrderProduct> = emptyList(),
-    val id: Int = 0,
-    val response: OrderResponse? = null,
-    /** A dónde va el pedido: nombre de la sucursal o "Recolección". */
-    val destination: String = ""
+    val products: List<OrderProduct> = emptyList()
 )
 
 val orders = listOf(
@@ -542,7 +345,7 @@ val orders = listOf(
         accent = Color(0xFFFFA000),
         totalKg = "15.5 kg",
         products = listOf(
-            OrderProduct("Camarón Talla 41/50", 280.0, 2.0, 560.0)
+            OrderProduct("Camarón Talla 41/50", 280.0, 2, 560.0)
         )
     ),
     Order(
@@ -556,8 +359,8 @@ val orders = listOf(
         accent = Color(0xFF367CF4),
         totalKg = "32.0 kg",
         products = listOf(
-            OrderProduct("Pulpo Cocido", 450.0, 2.0, 900.0),
-            OrderProduct("Filete de Pescado", 183.33, 3.0, 550.0)
+            OrderProduct("Pulpo Cocido", 450.0, 2, 900.0),
+            OrderProduct("Filete de Pescado", 183.33, 3, 550.0)
         )
     ),
     Order(
@@ -571,7 +374,7 @@ val orders = listOf(
         accent = Color(0xFF7026DF),
         totalKg = "24.5 kg",
         products = listOf(
-            OrderProduct("Callo de Hacha", 980.0, 1.0, 980.0)
+            OrderProduct("Callo de Hacha", 980.0, 1, 980.0)
         )
     )
 )
