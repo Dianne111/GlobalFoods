@@ -12,14 +12,14 @@ import kotlin.test.assertEquals
 
 class EditOrderFormTest {
     @Test
-    fun rebuildsRegisteredWebOrdersUsingCatalogDataAndKeepsShippingAndNotes() {
+    fun rebuildsRegisteredWebOrdersUsingCatalogDataAndKeepsNotes() {
         val client = Client(
             id = 42, name = "María López", phonePascal = "3312345678",
             branchesPascal = listOf(Branch(id = 7, clientId = 42, name = "Sucursal Centro", address = "Av. Juárez 120"))
         )
         val form = formFromOrder(OrderResponse(
             id = 10, clientId = 42, branchId = 7, date = 20261125, client = client,
-            total = 1330.0, lines = listOf(OrderLineResponse(size = "Mediano", quantity = 5.0, subtotal = 1250.0)),
+            total = 1250.0, lines = listOf(OrderLineResponse(size = "Mediano", quantity = 5.0, subtotal = 1250.0)),
             notes = "A domicilio · Entrega 25/11/2026 · Tocar el timbre"
         ))
         assertEquals("Cliente registrado", form.clientType)
@@ -31,7 +31,6 @@ class EditOrderFormTest {
         assertEquals("Dirección", form.deliveryMode)
         assertEquals("25/11/2026", form.deliveryDate)
         assertEquals("Tocar el timbre", form.notes)
-        assertEquals("80", form.shipping)
     }
 
     @Test
@@ -64,8 +63,7 @@ class EditOrderFormTest {
                     address = "Av. Juárez 120",
                     phone = "3312345678",
                     branchName = "Sucursal Centro",
-                    references = "Portón negro",
-                    shippingCost = 50.0
+                    references = "Portón negro"
                 )
             ).encode(),
             lines = listOf(
@@ -87,7 +85,6 @@ class EditOrderFormTest {
         assertEquals("Av. Juárez 120", form.address)
         assertEquals("20/11/2026", form.deliveryDate)
         assertEquals("Tocar el timbre", form.notes)
-        assertEquals("50", form.shipping)
         assertEquals("Dirección", form.deliveryMode)
         assertEquals("Portón negro", form.references)
     }

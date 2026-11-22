@@ -32,7 +32,6 @@ import com.globalfoods.project.sharedlogic.network.orders.paymentMethodLabel
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
 import com.globalfoods.project.sharedlogic.network.orders.orderStatus
-import com.globalfoods.project.sharedlogic.network.orders.shippingCost
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import kotlinx.coroutines.launch
 
@@ -294,7 +293,6 @@ fun OrderDetailScreen(
                             OrderDetailField("Referencias", it)
                         }
                         OrderDetailField("Observaciones", observations.notes, "Sin observaciones")
-                        OrderDetailField("Costo de envío", response?.shippingCost?.let { "$$it" })
                     }
                 }
             }
