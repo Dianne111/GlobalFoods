@@ -43,4 +43,13 @@ class AdminClientTest {
         )
         assertEquals("""{"usuario":"ana","contrasena":"x","nombre":"Ana","telefono":"33","estatus":1}""", body)
     }
+
+    @Test
+    fun omitsThePasswordWhenItIsNotChanged() {
+        val body = json.encodeToString(
+            ClientRequest.serializer(),
+            ClientRequest(usuario = "ana", nombre = "Ana", telefono = "33", estatus = 0)
+        )
+        assertEquals("""{"usuario":"ana","nombre":"Ana","telefono":"33","estatus":0}""", body)
+    }
 }
