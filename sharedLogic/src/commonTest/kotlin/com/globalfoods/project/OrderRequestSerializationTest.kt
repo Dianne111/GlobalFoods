@@ -17,6 +17,21 @@ import kotlin.test.assertNull
 
 class OrderRequestSerializationTest {
     @Test
+    fun kilogramsAndProductQuantitiesKeepTheirFractionInTheApiJson() {
+        val request = OrderRequest(
+            clientId = 12, branchId = 3, date = 20261121, totalKg = 10.5, total = 2625.0, status = 1,
+            lines = listOf(OrderLineRequest(101, "Mediano", 10.5, 250.0, 2625.0))
+        )
+        val body = Json.encodeToJsonElement(OrderRequest.serializer(), request).jsonObject
+        assertEquals("10.5", body.getValue("TotalKG").jsonPrimitive.content)
+        val line = body.getValue("lineas").jsonArray.single().jsonObject
+        assertEquals("10.5", line.getValue("Cantidad").jsonPrimitive.content)
+        assertEquals("2625.0", line.getValue("Subtotal").jsonPrimitive.content)
+        val restored = Json.decodeFromString<OrderRequest>(Json.encodeToString(OrderRequest.serializer(), request))
+        assertEquals(10.5, restored.lines.single().quantity)
+    }
+
+    @Test
     fun deliveryDateCanBeMissingNullOrAnIntegerAndSurvivesOtherUpdates() {
         assertNull(Json.decodeFromString<OrderResponse>("""{"Id":25}""").deliveryDate)
         assertNull(Json.decodeFromString<OrderResponse>("""{"Id":25,"FechaEntrega":null}""").deliveryDate)
