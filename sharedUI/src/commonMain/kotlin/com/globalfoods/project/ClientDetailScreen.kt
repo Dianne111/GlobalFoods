@@ -71,10 +71,6 @@ fun ClientDetailScreen(
 
     var editingClient by remember { mutableStateOf(false) }
     var confirmDeactivate by remember { mutableStateOf(false) }
-    /** Aviso (título y mensaje) de que la baja no se puede hacer por pedidos pendientes. */
-    var blockedNotice by remember { mutableStateOf<Pair<String, String>?>(null) }
-    val clientBlockedTitle = "No se puede dar de baja al cliente"
-    val branchBlockedTitle = "No se puede dar de baja la sucursal"
     var editingBranch by remember { mutableStateOf<Branch?>(null) }
     var branchToDeactivate by remember { mutableStateOf<Branch?>(null) }
     var isSaving by remember { mutableStateOf(false) }
@@ -172,11 +168,7 @@ fun ClientDetailScreen(
                                 ) { Text("Editar datos") }
                                 if (current.isActive) {
                                     TextButton(
-                                        onClick = {
-                                            val pending = pendingDeliveryOrders(orders.mapNotNull { it.response }, current.id)
-                                            if (pending.isEmpty()) confirmDeactivate = true
-                                            else blockedNotice = clientBlockedTitle to pendingOrdersMessage(current.name, pending)
-                                        },
+                                        onClick = { confirmDeactivate = true },
                                         enabled = !isSaving,
                                         colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
                                     ) { Text("Dar de baja") }
@@ -210,11 +202,7 @@ fun ClientDetailScreen(
                     BranchCard(
                         branch,
                         onEdit = { editingBranch = branch },
-                        onDeactivate = {
-                            val pending = pendingBranchOrders(orders.mapNotNull { it.response }, branch.id)
-                            if (pending.isEmpty()) branchToDeactivate = branch
-                            else blockedNotice = branchBlockedTitle to pendingBranchOrdersMessage(branch.name, pending)
-                        },
+                        onDeactivate = { branchToDeactivate = branch },
                         onReactivate = { runAction { orderRepository.setBranchActive(branch, active = true) } }
                     )
                 }
@@ -268,26 +256,9 @@ fun ClientDetailScreen(
                     onClick = {
                         isSaving = true
                         scope.launch {
-                            // Se vuelve a consultar por si se registró un pedido mientras la pantalla estaba abierta.
-                            val pending = orderRepository.getOrders().map { pendingDeliveryOrders(it, current.id) }
-                            pending.fold(
-                                onSuccess = { list ->
-                                    if (list.isNotEmpty()) {
-                                        confirmDeactivate = false
-                                        blockedNotice = clientBlockedTitle to pendingOrdersMessage(current.name, list)
-                                        reloadKey++
-                                    } else {
-                                        clientRepository.setActive(current, active = false).fold(
-                                            onSuccess = { confirmDeactivate = false; onDeactivated() },
-                                            onFailure = { confirmDeactivate = false; actionError = it.message }
-                                        )
-                                    }
-                                },
-                                onFailure = {
-                                    confirmDeactivate = false
-                                    actionError = "No se pudo verificar si el cliente tiene pedidos pendientes, " +
-                                        "así que no se dio de baja. ${it.message.orEmpty()}".trim()
-                                }
+                            clientRepository.setActive(current, active = false).fold(
+                                onSuccess = { confirmDeactivate = false; onDeactivated() },
+                                onFailure = { confirmDeactivate = false; actionError = it.message }
                             )
                             isSaving = false
                         }
@@ -295,15 +266,6 @@ fun ClientDetailScreen(
                 ) { Text("Dar de baja", color = Color(0xFFB91C1C)) }
             },
             dismissButton = { TextButton(onClick = { confirmDeactivate = false }, enabled = !isSaving) { Text("Cancelar") } }
-        )
-    }
-
-    blockedNotice?.let { (title, message) ->
-        AlertDialog(
-            onDismissRequest = { blockedNotice = null },
-            title = { Text(title) },
-            text = { Text(message) },
-            confirmButton = { TextButton(onClick = { blockedNotice = null }) { Text("Aceptar") } }
         )
     }
 
@@ -333,19 +295,7 @@ fun ClientDetailScreen(
             branch = branch,
             saving = isSaving,
             onConfirm = {
-                isSaving = true
-                scope.launch {
-                    deactivateBranchIfNoPendingOrders(orderRepository, branch).fold(
-                        onSuccess = { branchToDeactivate = null },
-                        onFailure = { e ->
-                            branchToDeactivate = null
-                            if (e is PendingOrdersException) blockedNotice = branchBlockedTitle to e.message.orEmpty()
-                            else actionError = e.message
-                        }
-                    )
-                    reloadKey++
-                    isSaving = false
-                }
+                runAction(onDone = { branchToDeactivate = null }) { orderRepository.setBranchActive(branch, active = false) }
             },
             onDismiss = { branchToDeactivate = null }
         )
