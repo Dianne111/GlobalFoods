@@ -12,6 +12,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
+import com.globalfoods.project.sharedlogic.network.auth.UserRole
 
 class OrderRepository {
     private val baseUrl = "https://api.globalfoodsmexico.com/api"
@@ -24,11 +26,14 @@ class OrderRepository {
 
     suspend fun getBranches(clientId: Int): Result<List<Branch>> = request {
         val response = globalFoodsClient.get("$baseUrl/sucursales-clientes") {
-            header("X-Id-Cliente", clientId.toString())
+            if (sessionRol != UserRole.Client && clientId > 0) {
+                header("X-Id-Cliente", clientId.toString())
+            }
         }
         ensureSuccess(response, "las sucursales")
         response.body()
     }
+
     suspend fun createBranch(branch: BranchRequest): Result<Unit> = request {
         validate(branch)
         val response = globalFoodsClient.post("$baseUrl/sucursales-clientes") {
