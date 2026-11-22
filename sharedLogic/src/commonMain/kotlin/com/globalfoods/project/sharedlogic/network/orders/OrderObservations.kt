@@ -12,8 +12,7 @@ data class OrderDeliveryInfo(
     val address: String,
     val phone: String = "",
     val branchName: String = "",
-    val references: String = "",
-    val shippingCost: Double = 0.0
+    val references: String = ""
 )
 
 data class OrderObservations(

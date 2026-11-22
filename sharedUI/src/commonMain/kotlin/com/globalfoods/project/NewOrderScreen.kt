@@ -76,7 +76,6 @@ import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.OrderDeliveryInfo
 import com.globalfoods.project.sharedlogic.network.orders.OrderLineRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
-import com.globalfoods.project.sharedlogic.network.orders.shippingCost
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
@@ -102,20 +101,16 @@ internal data class NewOrderFormState(
     val postalCode: String = "",
     val deliveryDate: String = millisToDate(currentDateMillis()),
     val notes: String = "",
-    val shipping: String = "",
     val deliveryMode: String = "Dirección",
     val payment: String = "Transferencia",
     val references: String = ""
 ) {
-    val shippingCost: Double
-        get() = shipping.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
-
     val hasCapturedData: Boolean
         get() = quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true } ||
             client.isNotBlank() || phone.isNotBlank() || branch.isNotBlank() ||
             address.isNotBlank() || street.isNotBlank() || neighborhood.isNotBlank() ||
             postalCode.isNotBlank() || deliveryDate.isNotBlank() ||
-            notes.isNotBlank() || shipping.isNotBlank()
+            notes.isNotBlank()
 }
 
 internal const val OUT_OF_STOCK_MESSAGE =
@@ -176,7 +171,6 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
         postalCode = postalCode,
         deliveryDate = orderDateToText(order.date) ?: millisToDate(currentDateMillis()),
         notes = observations.notes,
-        shipping = order.shippingCost.takeIf { it > 0 }?.let(::formatQuantity).orEmpty(),
         deliveryMode = if (isPickup) "Recolección" else "Dirección",
         references = delivery?.references.orEmpty()
     )
@@ -457,8 +451,7 @@ fun NewOrderScreen(
                 onSubmit = {
                     val products = selectedProducts(form.quantities, inventory)
                     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
-                    val total = products.sumOf { it.precio * (form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0) } +
-                        form.shippingCost
+                    val total = orderProductsTotal(form.quantities, inventory)
                     val selectedCreationDate = dateToMillis(form.deliveryDate)
                     if (selectedCreationDate == null) {
                         saveError = "Selecciona una fecha de creación válida."
@@ -488,8 +481,7 @@ fun NewOrderScreen(
                         address = if (isPickup) "" else form.address,
                         phone = form.phone.trim(),
                         branchName = if (isPickup) "" else form.branch,
-                        references = form.references,
-                        shippingCost = form.shippingCost
+                        references = form.references
                     )
                     val request = OrderRequest(
                         clientId = form.clientId.takeIf { form.clientType == "Cliente registrado" },
@@ -905,7 +897,6 @@ private fun DetailsStep(
             }
             DateField(form.deliveryDate, onClick = onDatePicker)
             FormField("Observaciones", form.notes, { onFormChange(form.copy(notes = it)) }, singleLine = false)
-            FormField("Costo de envío", form.shipping, { onFormChange(form.copy(shipping = it)) }, KeyboardType.Decimal)
             val hasProducts = form.quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true }
             val hasClient = if (form.clientType == "Cliente registrado") form.clientId != null else form.client.isNotBlank()
             val hasLocation = form.deliveryMode == "Recolección" ||
@@ -939,11 +930,7 @@ private fun SummaryStep(
 ) {
     val products = selectedProducts(form.quantities, inventory)
     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
-    val subtotal = products.sumOf { product ->
-        (form.quantities[product.talla]?.toDoubleOrNull() ?: 0.0) * product.precio
-    }
-    val shippingCost = form.shippingCost
-    val total = subtotal + shippingCost
+    val total = orderProductsTotal(form.quantities, inventory)
     LazyColumn(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("CLIENTE", color = Gray, fontSize = 12.sp)
@@ -973,8 +960,7 @@ private fun SummaryStep(
         item {
             HorizontalDivider()
             SummaryAmountRow("Total de kilos", "${totalKg} kg")
-            SummaryAmountRow("Subtotal", "$${subtotal}")
-            SummaryAmountRow("Costo de envío", "$${shippingCost}")
+            SummaryAmountRow("Subtotal", "$${total}")
             SummaryAmountRow("Descuento", "$0.00")
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             SummaryAmountRow("Importe total", "$${total}", emphasized = true)
@@ -1009,6 +995,12 @@ private fun SummaryAmountRow(label: String, value: String, emphasized: Boolean =
 
 private fun selectedProducts(quantities: Map<String, String>, inventory: List<ArticuloInventario>) =
     inventory.filter { quantities[it.talla]?.toDoubleOrNull()?.let { value -> value > 0 } == true }
+
+/** Importe del pedido: únicamente cantidad por precio de los productos seleccionados. */
+internal fun orderProductsTotal(quantities: Map<String, String>, inventory: List<ArticuloInventario>): Double =
+    selectedProducts(quantities, inventory).sumOf { product ->
+        (quantities[product.talla]?.toDoubleOrNull() ?: 0.0) * product.precio
+    }
 
 /** Conserva estados de escritura como "0." y "10." antes de capturar la fracción. */
 internal fun normalizeQuantity(value: String, maximum: Double): String {

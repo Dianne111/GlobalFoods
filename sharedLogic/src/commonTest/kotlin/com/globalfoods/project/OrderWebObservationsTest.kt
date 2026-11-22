@@ -1,12 +1,10 @@
 package com.globalfoods.project
 
 import com.globalfoods.project.sharedlogic.network.orders.OrderDeliveryInfo
-import com.globalfoods.project.sharedlogic.network.orders.OrderLineResponse
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderPaymentMethod
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import com.globalfoods.project.sharedlogic.network.orders.paymentRequest
-import com.globalfoods.project.sharedlogic.network.orders.shippingCost
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -77,15 +75,4 @@ class OrderWebObservationsTest {
         assertEquals(notes, request.notes)
     }
 
-    @Test
-    fun shippingRemainsAvailableFromTotalsWithoutAddingMetadataToWebNotes() {
-        val order = OrderResponse(
-            id = 7, total = 1330.0,
-            notes = OrderObservations("", delivery).encodeForWeb(20261125),
-            lines = listOf(OrderLineResponse(subtotal = 1250.0))
-        )
-        assertEquals(80.0, order.shippingCost)
-        assertEquals(0.0, order.copy(lines = emptyList()).shippingCost)
-        assertEquals(0.0, order.copy(total = 1200.0).shippingCost)
-    }
 }
