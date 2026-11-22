@@ -31,6 +31,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -458,6 +459,15 @@ fun NewOrderScreen(
                     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
                     val total = products.sumOf { it.precio * (form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0) } +
                         form.shippingCost
+                    val selectedCreationDate = dateToMillis(form.deliveryDate)
+                    if (selectedCreationDate == null) {
+                        saveError = "Selecciona una fecha de creación válida."
+                        return@SummaryStep
+                    }
+                    if (!isEditing && !isSelectableCreationDate(selectedCreationDate)) {
+                        saveError = "La fecha de creación debe ser hoy o un día futuro."
+                        return@SummaryStep
+                    }
                     val date = form.deliveryDate.split('/').let {
                         if (it.size == 3) "${it[2]}${it[1]}${it[0]}".toIntOrNull() else null
                     } ?: 0
@@ -523,6 +533,7 @@ fun NewOrderScreen(
     if (showDatePicker) {
         DateSelectionDialog(
             initialValue = form.deliveryDate,
+            allowPastDates = isEditing,
             onDismissRequest = { showDatePicker = false },
             onConfirm = { date ->
                 form = form.copy(deliveryDate = date)
@@ -999,13 +1010,23 @@ private fun SummaryAmountRow(label: String, value: String, emphasized: Boolean =
 private fun selectedProducts(quantities: Map<String, String>, inventory: List<ArticuloInventario>) =
     inventory.filter { quantities[it.talla]?.toDoubleOrNull()?.let { value -> value > 0 } == true }
 
-private fun normalizeQuantity(value: String, maximum: Double): String {
-    val normalized = value.replace(',', '.')
+/** Conserva estados de escritura como "0." y "10." antes de capturar la fracción. */
+internal fun normalizeQuantity(value: String, maximum: Double): String {
+    val cleaned = value.replace(',', '.')
         .filter { it.isDigit() || it == '.' }
-    val amount = normalized.toDoubleOrNull() ?: return ""
-    return amount.coerceIn(0.0, maximum).let { result ->
-        if (result == 0.0) "" else result.toString().trimEnd('0').trimEnd('.')
+    // Un segundo separador no forma parte de una cantidad válida.
+    val prefix = Regex("^\\d*(?:\\.\\d*)?").find(cleaned)?.value.orEmpty()
+    if (prefix.isEmpty()) return ""
+    val normalized = prefix.trimStart('0').let {
+        when {
+            it.isEmpty() -> "0"
+            it.startsWith('.') -> "0$it"
+            else -> it
+        }
     }
+    val amount = normalized.toDoubleOrNull() ?: return ""
+    if (!amount.isFinite()) return ""
+    return if (amount > maximum) formatQuantity(maximum) else normalized
 }
 
 @Composable
@@ -1146,12 +1167,25 @@ private fun DateField(value: String, onClick: () -> Unit) {
 @Composable
 private fun DateSelectionDialog(
     initialValue: String,
+    allowPastDates: Boolean = false,
     onDismissRequest: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
+    val today = currentDateMillis()
     val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = dateToMillis(initialValue) ?: currentDateMillis(),
-        yearRange = 1900..2100
+        initialSelectedDateMillis = (dateToMillis(initialValue) ?: today).let {
+            if (allowPastDates) it else maxOf(it, today)
+        },
+        yearRange = 1900..2100,
+        selectableDates = remember(allowPastDates) {
+            object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                    allowPastDates || isSelectableCreationDate(utcTimeMillis)
+
+                override fun isSelectableYear(year: Int): Boolean =
+                    allowPastDates || year >= currentPaymentDate() / 10000
+            }
+        }
     )
     val selectedDate = datePickerState.selectedDateMillis
 
@@ -1163,8 +1197,13 @@ private fun DateSelectionDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(millisToDate(selectedDate!!)) },
-                enabled = selectedDate != null
+                onClick = {
+                    val selected = datePickerState.selectedDateMillis
+                    if (selected != null && (allowPastDates || isSelectableCreationDate(selected))) {
+                        onConfirm(millisToDate(selected))
+                    }
+                },
+                enabled = selectedDate != null && (allowPastDates || isSelectableCreationDate(selectedDate))
             ) { Text("Aceptar") }
         },
         dismissButton = {
@@ -1196,10 +1235,16 @@ private fun DateSelectionDialog(
     }
 }
 
-private fun currentDateMillis(): Long =
-    (kotlin.time.Clock.System.now().toEpochMilliseconds() / MILLIS_PER_DAY) * MILLIS_PER_DAY
+// DatePicker representa días con medianoche UTC; el día civil se toma del teléfono.
+private fun currentDateMillis(): Long {
+    val date = currentPaymentDate()
+    return daysFromCivil(date / 10000, date / 100 % 100, date % 100) * MILLIS_PER_DAY
+}
 
-private fun dateToMillis(value: String): Long? {
+internal fun isSelectableCreationDate(dateMillis: Long?, todayMillis: Long = currentDateMillis()): Boolean =
+    dateMillis != null && dateMillis >= todayMillis
+
+internal fun dateToMillis(value: String): Long? {
     if (!value.matches(Regex("\\d{2}/\\d{2}/\\d{4}"))) return null
 
     val day = value.substring(0, 2).toInt()
