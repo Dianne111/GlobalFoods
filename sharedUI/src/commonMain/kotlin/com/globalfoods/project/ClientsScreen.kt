@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.clients.ClientRepository
+import com.globalfoods.project.sharedlogic.network.core.ApiConflictException
 import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
@@ -109,24 +110,30 @@ internal fun pendingOrdersMessage(clientName: String, pending: List<OrderRespons
 internal fun pendingBranchOrdersMessage(branchName: String, pending: List<OrderResponse>): String =
     "La sucursal \"${branchName.ifBlank { "sin nombre" }}\" ${pendingOrdersSummary(pending)}"
 
+private const val IN_PROCESS_SUFFIX = "tiene pedidos en proceso. Podrá darse de baja cuando esos pedidos se entreguen o se cancelen."
+
+/**
+ * Aviso cuando la API rechaza la baja del cliente (409) sin decir qué pedidos son, por ejemplo
+ * porque entró un pedido después de que la pantalla cargó la lista.
+ */
+internal fun clientInProcessMessage(clientName: String): String =
+    "\"${clientName.ifBlank { "Este cliente" }}\" $IN_PROCESS_SUFFIX"
+
+/** Igual que [clientInProcessMessage], para la baja de una sucursal. */
+internal fun branchInProcessMessage(branchName: String): String =
+    "La sucursal \"${branchName.ifBlank { "sin nombre" }}\" $IN_PROCESS_SUFFIX"
+
 /** La baja no se hizo porque hay pedidos pendientes; su mensaje es el texto del aviso. */
 internal class PendingOrdersException(message: String) : Exception(message)
 
 /**
- * Vuelve a consultar los pedidos (por si entró uno mientras la pantalla estaba abierta) y da de baja
- * la sucursal solo si no tiene pedidos pendientes. Si los tiene, falla con [PendingOrdersException];
- * si no se pueden consultar, tampoco la da de baja.
+ * Da de baja la sucursal. La API revisa los pedidos pendientes y, si los hay, responde 409:
+ * en ese caso falla con [PendingOrdersException] y el texto del aviso (CU-22, A1).
  */
-internal suspend fun deactivateBranchIfNoPendingOrders(repository: OrderRepository, branch: Branch): Result<Unit> {
-    val orders = repository.getOrders().getOrElse {
-        return Result.failure(
-            Exception("No se pudo verificar si la sucursal tiene pedidos pendientes, así que no se dio de baja. ${it.message.orEmpty()}".trim())
-        )
+internal suspend fun deactivateBranchIfNoPendingOrders(repository: OrderRepository, branch: Branch): Result<Unit> =
+    repository.setBranchActive(branch, active = false).recoverCatching { error ->
+        throw if (error is ApiConflictException) PendingOrdersException(branchInProcessMessage(branch.name)) else error
     }
-    val pending = pendingBranchOrders(orders, branch.id)
-    if (pending.isNotEmpty()) return Result.failure(PendingOrdersException(pendingBranchOrdersMessage(branch.name, pending)))
-    return repository.setBranchActive(branch, active = false)
-}
 
 @Composable
 fun ClientsScreen(

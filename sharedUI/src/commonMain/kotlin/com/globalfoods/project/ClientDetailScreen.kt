@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.clients.ClientRepository
+import com.globalfoods.project.sharedlogic.network.core.ApiConflictException
 import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.BranchRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
@@ -272,25 +273,17 @@ fun ClientDetailScreen(
                     onClick = {
                         isSaving = true
                         scope.launch {
-                            // Se vuelve a consultar por si se registró un pedido mientras la pantalla estaba abierta.
-                            val pending = orderRepository.getOrders().map { pendingDeliveryOrders(it, current.id) }
-                            pending.fold(
-                                onSuccess = { list ->
-                                    if (list.isNotEmpty()) {
-                                        confirmDeactivate = false
-                                        blockedNotice = clientBlockedTitle to pendingOrdersMessage(current.name, list)
+                            // La API revisa los pedidos pendientes; si entró uno nuevo responde 409.
+                            clientRepository.setActive(current, active = false).fold(
+                                onSuccess = { confirmDeactivate = false; onDeactivated() },
+                                onFailure = { e ->
+                                    confirmDeactivate = false
+                                    if (e is ApiConflictException) {
+                                        blockedNotice = clientBlockedTitle to clientInProcessMessage(current.name)
                                         reloadKey++
                                     } else {
-                                        clientRepository.setActive(current, active = false).fold(
-                                            onSuccess = { confirmDeactivate = false; onDeactivated() },
-                                            onFailure = { confirmDeactivate = false; actionError = it.message }
-                                        )
+                                        actionError = e.message
                                     }
-                                },
-                                onFailure = {
-                                    confirmDeactivate = false
-                                    actionError = "No se pudo verificar si el cliente tiene pedidos pendientes, " +
-                                        "así que no se dio de baja. ${it.message.orEmpty()}".trim()
                                 }
                             )
                             isSaving = false
