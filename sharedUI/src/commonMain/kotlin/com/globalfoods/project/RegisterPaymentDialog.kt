@@ -101,6 +101,10 @@ internal fun RegisterPaymentDialog(order: Order, onDismissRequest: () -> Unit, o
                         }
                     }
                 }
+                Text(
+                    "Al confirmar se registrará la fecha de entrega y el pedido quedará Entregado. El método de pago ya no podrá cambiarse.",
+                    color = Gray, fontSize = 14.sp
+                )
                 error?.let {
                     Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error, fontSize = 14.sp)
                 }

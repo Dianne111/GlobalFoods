@@ -93,7 +93,7 @@ class OrderRepository internal constructor(private val client: HttpClient) {
     }
 
     suspend fun createOrder(order: OrderRequest): Result<OrderResponse> = request {
-        val initial = order.copy(paymentMethod = 0)
+        val initial = order.copy(paymentMethod = 0, deliveryDate = null)
         validate(initial)
         val response = client.post("$baseUrl/pedidos") {
             contentType(ContentType.Application.Json)
@@ -129,18 +129,25 @@ class OrderRepository internal constructor(private val client: HttpClient) {
     suspend fun registerPayment(id: Int, method: OrderPaymentMethod, date: Int): Result<OrderResponse> = request {
         // Se consulta la versión más reciente antes de reenviar el encabezado y las líneas.
         val current = getOrder(id).getOrThrow()
-        val body = paymentRequest(current, method, date)
-        if (current.paymentMethod == method.code && current.date == date) {
-            // Reintento después de perder la confirmación de un guardado ya realizado.
+        if (current.orderStatus == OrderStatus.Delivered) {
+            // Reintento de una entrega ya guardada: no modifica el método ni ninguna fecha.
+            require(current.paymentMethod == method.code && current.deliveryDate != null) {
+                "El pedido ya está Entregado y su método de pago no se puede modificar. Actualiza el pedido."
+            }
             current
         } else {
+            val body = paymentRequest(current, method, date)
             updateOrder(id, body).getOrThrow()
             val confirmed = getOrder(id).getOrThrow()
             requireNotNull(confirmed.paymentMethod) {
                 "La API aceptó la actualización, pero la consulta del pedido no devolvió MetodoPago para confirmarla."
             }
-            require(confirmed.paymentMethod == method.code && confirmed.date == date && confirmed.status == current.status) {
-                "La API no confirmó el método de pago, la fecha o el estado esperado. Actualiza el pedido antes de reintentar."
+            requireNotNull(confirmed.deliveryDate) {
+                "La API aceptó la actualización, pero la consulta del pedido no devolvió FechaEntrega para confirmarla."
+            }
+            require(confirmed.paymentMethod == method.code && confirmed.deliveryDate == date &&
+                confirmed.date == current.date && confirmed.orderStatus == OrderStatus.Delivered) {
+                "La API no confirmó el pago, FechaEntrega o el estado Entregado conservando la fecha de creación. Actualiza el pedido."
             }
             confirmed
         }

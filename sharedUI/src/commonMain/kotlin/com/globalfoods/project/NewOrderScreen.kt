@@ -486,6 +486,7 @@ fun NewOrderScreen(
                         branchId = form.branchId.takeUnless { isPickup },
                         date = date,
                         paymentMethod = orderToEdit?.paymentMethod ?: 0,
+                        deliveryDate = orderToEdit?.deliveryDate,
                         totalKg = totalKg,
                         total = total,
                         status = orderToEdit?.status ?: 1,
@@ -1125,7 +1126,7 @@ private fun DateField(value: String, onClick: () -> Unit) {
             onValueChange = {},
             readOnly = true,
             enabled = false,
-            label = { Text("Fecha de entrega") },
+            label = { Text("Fecha de creación") },
             placeholder = { Text("Seleccionar fecha") },
             modifier = Modifier.fillMaxWidth(),
             trailingIcon = { Text("▣", color = Navy, modifier = Modifier.padding(end = 12.dp)) },
@@ -1184,7 +1185,7 @@ private fun DateSelectionDialog(
             },
             headline = {
                 Text(
-                    "Selecciona la fecha de entrega",
+                    "Selecciona la fecha de creación",
                     color = Gray,
                     fontSize = 11.sp,
                     maxLines = 1
