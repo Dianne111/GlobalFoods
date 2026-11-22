@@ -330,9 +330,19 @@ fun NewOrderScreen(
         when (step) {
             NewOrderStep.Catalog, NewOrderStep.Summary -> step = NewOrderStep.Details
             NewOrderStep.Details -> {
-                // Solo pregunta si se capturó algo respecto a como se abrió la pantalla.
-                val hasChanges = form != initialForm
-                if (hasChanges) {
+                // Evaluamos si el usuario realmente escribió o modificó algo clave
+                val hasRealChanges = if (isEditing) {
+                    // Si estamos editando, comparamos las cantidades de productos o las notas principales
+                    form.quantities != initialForm.quantities ||
+                            form.notes != initialForm.notes ||
+                            form.shipping != initialForm.shipping
+                } else {
+                    // Si es un pedido nuevo, basta con ver si hay productos seleccionados o datos de cliente
+                    form.quantities.values.any { it.toDoubleOrNull() ?: 0.0 > 0.0 } ||
+                            form.client.isNotBlank() ||
+                            form.notes.isNotBlank()
+                }
+                if (hasRealChanges) {
                     showDiscardDialog = true
                 } else {
                     onBack()
@@ -365,12 +375,9 @@ fun NewOrderScreen(
                         TextButton(onClick = { showDiscardDialog = false }) { Text("Continuar editando") }
                         TextButton(onClick = {
                             showDiscardDialog = false
-                            if (isEditing) {
-                                onBack()
-                            } else {
-                                form = NewOrderFormState()
-                                step = NewOrderStep.Details
-                            }
+                            form = NewOrderFormState()
+                            step = NewOrderStep.Details
+                            onBack()
                         }) { Text("Descartar", color = Color(0xFFB91C1C)) }
                     }
                 }
