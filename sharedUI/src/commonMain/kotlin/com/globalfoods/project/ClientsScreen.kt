@@ -53,6 +53,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.clients.ClientRepository
+import com.globalfoods.project.sharedlogic.network.orders.Branch
+import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
+import com.globalfoods.project.sharedlogic.network.orders.orderStatus
 import kotlinx.coroutines.launch
 
 internal enum class ClientsView(val label: String) { Active("Activos"), Inactive("Inactivos") }
@@ -71,6 +75,58 @@ internal fun searchClients(clients: List<AdminClient>, query: String): List<Admi
 
 internal fun sortClients(clients: List<AdminClient>): List<AdminClient> =
     clients.sortedBy { it.name.trim().lowercase() }
+
+/**
+ * Pedidos del cliente [clientId] que todavía no se entregan (Creado, Surtido o En reparto).
+ * Mientras tenga alguno no se le puede dar de baja.
+ */
+internal fun pendingDeliveryOrders(orders: List<OrderResponse>, clientId: Int): List<OrderResponse> =
+    orders.filter { (it.clientId ?: it.client?.id) == clientId && it.orderStatus?.isCancellable == true }
+
+/** Pedidos dirigidos a la sucursal [branchId] que todavía no se entregan; impiden darla de baja. */
+internal fun pendingBranchOrders(orders: List<OrderResponse>, branchId: Int): List<OrderResponse> =
+    orders.filter { it.branchId == branchId && it.orderStatus?.isCancellable == true }
+
+/**
+ * "tiene 2 pedidos en proceso (#10, #11). Podrá darse de baja cuando esos pedidos se entreguen
+ * o se cancelen.", con hasta 5 números. Es el aviso del flujo A1 de CU-18 y CU-22: solo informa,
+ * no pide al usuario entregar ni cancelar (el cliente no puede hacerlo, CU-06 y CU-07).
+ */
+private fun pendingOrdersSummary(pending: List<OrderResponse>): String {
+    val count = pending.size
+    val numbers = pending.sortedBy { it.id }.take(5).joinToString(", ") { "#${it.id}" } +
+        if (count > 5) " y ${count - 5} más" else ""
+    val orders = if (count == 1) "1 pedido en proceso" else "$count pedidos en proceso"
+    val those = if (count == 1) "ese pedido se entregue o se cancele" else "esos pedidos se entreguen o se cancelen"
+    return "tiene $orders ($numbers). Podrá darse de baja cuando $those."
+}
+
+/** Texto del aviso que impide dar de baja a un cliente con pedidos en proceso (CU-18, A1). */
+internal fun pendingOrdersMessage(clientName: String, pending: List<OrderResponse>): String =
+    "\"${clientName.ifBlank { "Este cliente" }}\" ${pendingOrdersSummary(pending)}"
+
+/** Texto del aviso que impide dar de baja a una sucursal con pedidos en proceso (CU-22, A1). */
+internal fun pendingBranchOrdersMessage(branchName: String, pending: List<OrderResponse>): String =
+    "La sucursal \"${branchName.ifBlank { "sin nombre" }}\" ${pendingOrdersSummary(pending)}"
+
+/** La baja no se hizo porque hay pedidos pendientes; su mensaje es el texto del aviso. */
+internal class PendingOrdersException(message: String) : Exception(message)
+
+/**
+ * Vuelve a consultar los pedidos (por si entró uno mientras la pantalla estaba abierta) y da de baja
+ * la sucursal solo si no tiene pedidos pendientes. Si los tiene, falla con [PendingOrdersException];
+ * si no se pueden consultar, tampoco la da de baja.
+ */
+internal suspend fun deactivateBranchIfNoPendingOrders(repository: OrderRepository, branch: Branch): Result<Unit> {
+    val orders = repository.getOrders().getOrElse {
+        return Result.failure(
+            Exception("No se pudo verificar si la sucursal tiene pedidos pendientes, así que no se dio de baja. ${it.message.orEmpty()}".trim())
+        )
+    }
+    val pending = pendingBranchOrders(orders, branch.id)
+    if (pending.isNotEmpty()) return Result.failure(PendingOrdersException(pendingBranchOrdersMessage(branch.name, pending)))
+    return repository.setBranchActive(branch, active = false)
+}
 
 @Composable
 fun ClientsScreen(
