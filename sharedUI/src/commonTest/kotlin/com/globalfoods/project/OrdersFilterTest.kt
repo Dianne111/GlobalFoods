@@ -53,7 +53,11 @@ class OrdersFilterTest {
 
     @Test
     fun formatsTheApiDateForTheCard() {
-        assertEquals("Entrega 20/11/2026", orders[1].elapsed)
+        assertEquals("Creado 20/11/2026", orders[1].elapsed)
+        val delivered = toOrder(OrderResponse(id = 31, status = 4, date = 20261120, deliveryDate = 20261122))
+        assertEquals("Entrega 22/11/2026", delivered.elapsed)
+        assertEquals(true, OrdersView.Delivered.includes(delivered))
+        assertEquals(false, OrdersView.Active.includes(delivered))
         assertEquals("Sin fecha", order(30, "Cliente", status = 1, date = 0).elapsed)
     }
 }

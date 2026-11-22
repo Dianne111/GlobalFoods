@@ -16,12 +16,13 @@ class OrderPaymentTest {
     )
 
     @Test
-    fun bothMethodsUpdateOnlyTheDateAndPayment() {
+    fun bothMethodsFinalizeDeliveryWithoutChangingCreationOrOtherOrderData() {
         for ((method, code) in listOf(OrderPaymentMethod.Cash to 1, OrderPaymentMethod.CardOrTransfer to 2)) {
             val request = paymentRequest(original, method, 20261121)
             assertEquals(code, request.paymentMethod)
-            assertEquals(20261121, request.date)
-            assertEquals(3, request.status)
+            assertEquals(20261120, request.date)
+            assertEquals(20261121, request.deliveryDate)
+            assertEquals(4, request.status)
             assertEquals(12, request.clientId)
             assertEquals(3, request.branchId)
             assertEquals(5.0, request.totalKg)
@@ -36,11 +37,11 @@ class OrderPaymentTest {
     }
 
     @Test
-    fun permitsAnotherSelectionAndDateWhileTheOrderRemainsInDelivery() {
-        val request = paymentRequest(original.copy(paymentMethod = 1), OrderPaymentMethod.CardOrTransfer, 20261122)
-        assertEquals(2, request.paymentMethod)
-        assertEquals(20261122, request.date)
-        assertEquals(3, request.status)
+    fun aConfirmedDeliveryCannotChangeItsPaymentOrDeliveryDate() {
+        val delivered = original.copy(status = 4, paymentMethod = 1, deliveryDate = 20261121)
+        for (method in OrderPaymentMethod.entries) {
+            assertFailsWith<IllegalArgumentException> { paymentRequest(delivered, method, 20261122) }
+        }
     }
 
     @Test
@@ -51,6 +52,6 @@ class OrderPaymentTest {
             }
         }
         assertFailsWith<IllegalArgumentException> { paymentRequest(original, OrderPaymentMethod.Cash, 20260230) }
-        assertEquals(20240229, paymentRequest(original, OrderPaymentMethod.Cash, 20240229).date)
+        assertEquals(20240229, paymentRequest(original, OrderPaymentMethod.Cash, 20240229).deliveryDate)
     }
 }

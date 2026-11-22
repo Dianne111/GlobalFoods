@@ -22,9 +22,11 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OrderPaymentRepositoryTest {
@@ -49,7 +51,7 @@ class OrderPaymentRepositoryTest {
             assertEquals(0, sent.paymentMethod)
             val keys = Json.parseToJsonElement(text).jsonObject.keys
             assertFalse("Modalidad" in keys)
-            assertFalse("FechaEntrega" in keys)
+            assertEquals(JsonNull, Json.parseToJsonElement(text).jsonObject.getValue("FechaEntrega"))
             respond(Json.encodeToString(OrderResponse.serializer(), original.copy(date = sent.date, notes = sent.notes)), headers = headers)
         })
         try {
@@ -58,7 +60,7 @@ class OrderPaymentRepositoryTest {
     }
 
     @Test
-    fun creatingAnOrderStillSendsZeroEvenIfAnotherMethodWasProvided() = runBlocking {
+    fun aNewOrderIsUnpaidAndHasNoDeliveryDateEvenWhenCopyingAnOldOrder() = runBlocking {
         var sent: OrderRequest? = null
         val client = client(MockEngine { request ->
             assertEquals(HttpMethod.Post, request.method)
@@ -67,8 +69,9 @@ class OrderPaymentRepositoryTest {
             respond(Json.encodeToString(OrderResponse.serializer(), original.copy(status = 1)), headers = headers)
         })
         try {
-            OrderRepository(client).createOrder(original.toRequest().copy(status = 1, paymentMethod = 2)).getOrThrow()
+            OrderRepository(client).createOrder(original.toRequest().copy(status = 1, paymentMethod = 2, deliveryDate = 20261122)).getOrThrow()
             assertEquals(0, sent?.paymentMethod)
+            assertNull(sent?.deliveryDate)
         } finally { client.close() }
     }
 
@@ -82,16 +85,17 @@ class OrderPaymentRepositoryTest {
                 assertEquals("/api/pedidos/7", request.url.encodedPath)
                 if (request.method == HttpMethod.Put) {
                     val body = Json.decodeFromString<OrderRequest>((request.body as TextContent).text)
-                    assertEquals(original.toRequest().copy(date = 20261121, paymentMethod = method.code), body)
-                    stored = original.copy(date = body.date, paymentMethod = body.paymentMethod)
+                    assertEquals(original.toRequest().copy(deliveryDate = 20261121, paymentMethod = method.code, status = 4), body)
+                    stored = original.copy(date = body.date, deliveryDate = body.deliveryDate, paymentMethod = body.paymentMethod, status = body.status)
                     respond("", HttpStatusCode.NoContent)
                 } else respond(Json.encodeToString(OrderResponse.serializer(), stored), headers = headers)
             })
             try {
                 val result = OrderRepository(client).registerPayment(7, method, 20261121).getOrThrow()
                 assertEquals(method.code, result.paymentMethod)
-                assertEquals(20261121, result.date)
-                assertEquals(3, result.status)
+                assertEquals(20261120, result.date)
+                assertEquals(20261121, result.deliveryDate)
+                assertEquals(4, result.status)
                 assertEquals(listOf(HttpMethod.Get, HttpMethod.Put, HttpMethod.Get), calls)
             } finally { client.close() }
         }
@@ -117,7 +121,7 @@ class OrderPaymentRepositoryTest {
             when {
                 request.method == HttpMethod.Put -> {
                     puts++
-                    stored = original.copy(date = 20261121, paymentMethod = 1)
+                    stored = original.copy(deliveryDate = 20261121, paymentMethod = 1, status = 4)
                     respond("", HttpStatusCode.NoContent)
                 }
                 puts > 0 && loseConfirmation -> {
@@ -130,7 +134,7 @@ class OrderPaymentRepositoryTest {
         try {
             val repository = OrderRepository(client)
             assertTrue(repository.registerPayment(7, OrderPaymentMethod.Cash, 20261121).isFailure)
-            assertEquals(stored, repository.registerPayment(7, OrderPaymentMethod.Cash, 20261121).getOrThrow())
+            assertEquals(stored, repository.registerPayment(7, OrderPaymentMethod.Cash, 20261122).getOrThrow())
             assertEquals(1, puts)
         } finally { client.close() }
     }
@@ -163,5 +167,58 @@ class OrderPaymentRepositoryTest {
             assertTrue(OrderRepository(client).registerPayment(7, OrderPaymentMethod.Cash, 20261121).isFailure)
             assertEquals(listOf(HttpMethod.Get), calls)
         } finally { client.close() }
+    }
+
+    @Test
+    fun aDeliveredOrderCannotSwitchToAnotherMethod() = runBlocking {
+        val calls = mutableListOf<HttpMethod>()
+        val client = client(MockEngine { request ->
+            calls += request.method
+            respond(Json.encodeToString(OrderResponse.serializer(), original.copy(status = 4, paymentMethod = 1, deliveryDate = 20261121)), headers = headers)
+        })
+        try {
+            assertTrue(OrderRepository(client).registerPayment(7, OrderPaymentMethod.CardOrTransfer, 20261122).isFailure)
+            assertEquals(listOf(HttpMethod.Get), calls)
+        } finally { client.close() }
+    }
+
+    @Test
+    fun reportsWhenTheApiOmitsTheNewDeliveryDateAfterAcceptingThePut() = runBlocking {
+        var puts = 0
+        val client = client(MockEngine { request ->
+            if (request.method == HttpMethod.Put) {
+                puts++
+                respond("", HttpStatusCode.NoContent)
+            } else respond(Json.encodeToString(OrderResponse.serializer(),
+                if (puts == 0) original else original.copy(status = 4, paymentMethod = 1)
+            ), headers = headers)
+        })
+        try {
+            val result = OrderRepository(client).registerPayment(7, OrderPaymentMethod.Cash, 20261121)
+            assertTrue(result.isFailure)
+            assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("no devolvió FechaEntrega"))
+        } finally { client.close() }
+    }
+
+    @Test
+    fun verifiesCreationDeliveryPaymentAndFinalStateInsteadOfTrustingHttpSuccess() = runBlocking {
+        val expected = original.copy(status = 4, paymentMethod = 1, deliveryDate = 20261121)
+        for (incorrect in listOf(
+            expected.copy(date = 20261121),
+            expected.copy(deliveryDate = 20261122),
+            expected.copy(paymentMethod = 2),
+            expected.copy(status = 3)
+        )) {
+            var written = false
+            val client = client(MockEngine { request ->
+                if (request.method == HttpMethod.Put) {
+                    written = true
+                    respond("", HttpStatusCode.NoContent)
+                } else respond(Json.encodeToString(OrderResponse.serializer(), if (written) incorrect else original), headers = headers)
+            })
+            try {
+                assertTrue(OrderRepository(client).registerPayment(7, OrderPaymentMethod.Cash, 20261121).isFailure)
+            } finally { client.close() }
+        }
     }
 }

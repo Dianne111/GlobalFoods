@@ -50,7 +50,7 @@ import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
 import com.globalfoods.project.sharedlogic.network.orders.orderStatus
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 
-/** Ordena del pedido más reciente al más antiguo (por fecha de entrega y luego por número). */
+/** Ordena del pedido más reciente al más antiguo (por fecha de creación y luego por número). */
 internal fun sortOrders(orders: List<Order>): List<Order> =
     orders.sortedWith(compareByDescending<Order> { it.response?.date ?: 0 }.thenByDescending { it.id })
 
@@ -112,7 +112,7 @@ fun OrdersScreen(
         containerColor = Background,
         topBar = {
             ScreenHeader(eyebrow = "PANEL DE CONTROL", title = "PEDIDOS") {
-                // Los estados los actualiza almacén/reparto en la API; aquí solo se vuelven a consultar.
+                // Refresca las etapas del almacén y las entregas confirmadas desde el móvil.
                 HeaderIconAction(Icons.Outlined.Refresh, "Actualizar pedidos", enabled = !isLoading) { reloadKey++ }
             }
         },

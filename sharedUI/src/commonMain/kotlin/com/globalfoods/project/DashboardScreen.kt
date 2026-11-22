@@ -283,7 +283,8 @@ internal fun toOrder(
         items = "${response.lines.size} Items",
         status = statusLabel(response.status),
         statusColor = statusColor(response.status),
-        elapsed = formatOrderDate(response.date)?.let { "Entrega $it" } ?: "Sin fecha",
+        elapsed = formatOrderDate(response.deliveryDate)?.let { "Entrega $it" }
+            ?: formatOrderDate(response.date)?.let { "Creado $it" } ?: "Sin fecha",
         accent = statusColor(response.status),
         totalKg = "${response.totalKg} kg",
         products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) },

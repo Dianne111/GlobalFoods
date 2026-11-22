@@ -135,7 +135,7 @@ fun OrderDetailScreen(
                 title = "Pedido ${order.number}",
                 onBack = onNavigateBack
             ) {
-                // El estado lo cambia almacén/reparto en la API; aquí solo se vuelve a consultar.
+                // Consulta el estado y las fechas guardadas en la API.
                 HeaderIconAction(Icons.Outlined.Refresh, "Actualizar estado", enabled = !isLoading) { reloadKey++ }
             }
         }
@@ -265,7 +265,8 @@ fun OrderDetailScreen(
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("ENTREGA Y OBSERVACIONES", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        OrderDetailField("Fecha de entrega", formatOrderDate(response?.date))
+                        OrderDetailField("Fecha de creación", formatOrderDate(response?.date))
+                        OrderDetailField("Fecha de entrega", formatOrderDate(response?.deliveryDate), "Pendiente de entrega")
                         OrderDetailField("Método de pago", paymentMethodLabel(response?.paymentMethod))
                         OrderDetailField("Método de entrega", deliveryMethod)
                         if (isPickup) {

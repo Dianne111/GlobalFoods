@@ -4,16 +4,32 @@ import com.globalfoods.project.sharedlogic.network.orders.OrderLineRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import com.globalfoods.project.sharedlogic.network.orders.cancellationRequest
+import com.globalfoods.project.sharedlogic.network.orders.toRequest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 class OrderRequestSerializationTest {
+    @Test
+    fun deliveryDateCanBeMissingNullOrAnIntegerAndSurvivesOtherUpdates() {
+        assertNull(Json.decodeFromString<OrderResponse>("""{"Id":25}""").deliveryDate)
+        assertNull(Json.decodeFromString<OrderResponse>("""{"Id":25,"FechaEntrega":null}""").deliveryDate)
+        val delivered = Json.decodeFromString<OrderResponse>(
+            """{"Id":25,"Fecha":20261120,"FechaEntrega":20261122,"MetodoPago":2,"Estatus":4}"""
+        )
+        assertEquals(20261122, delivered.deliveryDate)
+        assertEquals(20261122, delivered.toRequest().deliveryDate)
+        val body = Json.encodeToJsonElement(OrderRequest.serializer(), delivered.toRequest()).jsonObject
+        assertEquals("20261122", body.getValue("FechaEntrega").jsonPrimitive.content)
+        assertEquals("20261120", body.getValue("Fecha").jsonPrimitive.content)
+    }
+
     @Test
     fun oldOrdersWithoutAPaymentValueStillDecode() {
         assertNull(Json.decodeFromString<OrderResponse>("""{"Id":25}""").paymentMethod)
@@ -31,6 +47,7 @@ class OrderRequestSerializationTest {
         val body = Json.encodeToJsonElement(OrderRequest.serializer(), request).jsonObject
         assertEquals("0", body.getValue("MetodoPago").jsonPrimitive.content)
         assertEquals("20261120", body.getValue("Fecha").jsonPrimitive.content)
+        assertEquals(JsonNull, body.getValue("FechaEntrega"))
         assertEquals("12", body.getValue("IdCliente").jsonPrimitive.content)
         assertEquals("3", body.getValue("IdSucursal").jsonPrimitive.content)
         val line = body.getValue("lineas").jsonArray.single().jsonObject

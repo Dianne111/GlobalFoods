@@ -15,7 +15,7 @@ fun paymentMethodLabel(code: Int?): String = when (code) {
     else -> OrderPaymentMethod.fromCode(code)?.label ?: "Método $code"
 }
 
-/** Para las pruebas actuales, Fecha se reemplaza con el día de captura del pago. */
+/** Confirma la entrega y el pago; Fecha conserva el valor de creación. */
 fun paymentRequest(order: OrderResponse, method: OrderPaymentMethod, date: Int): OrderRequest {
     require(order.orderStatus?.acceptsPayment == true) { "Solo se puede registrar el pago de un pedido En reparto." }
     val year = date / 10000
@@ -27,5 +27,9 @@ fun paymentRequest(order: OrderResponse, method: OrderPaymentMethod, date: Int):
         else -> 31
     }
     require(year in 1900..2100 && month in 1..12 && day in 1..maximumDay) { "La fecha de captura no es válida." }
-    return order.toRequest().copy(date = date, paymentMethod = method.code)
+    return order.toRequest().copy(
+        deliveryDate = date,
+        paymentMethod = method.code,
+        status = OrderStatus.Delivered.code
+    )
 }

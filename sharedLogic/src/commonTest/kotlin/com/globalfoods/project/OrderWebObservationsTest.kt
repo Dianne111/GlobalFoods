@@ -64,15 +64,16 @@ class OrderWebObservationsTest {
     }
 
     @Test
-    fun paymentKeepsItsCurrentDateAndStateBehaviorAndPreservesTheWebHeader() {
+    fun paymentPreservesCreationAndWebNotesWhileSavingTheRealDeliveryDate() {
         val notes = OrderObservations("Llamar", delivery).encodeForWeb(20261125)
         val request = paymentRequest(
             OrderResponse(id = 7, clientId = 12, branchId = 3, status = 3, date = 20261125, notes = notes),
             OrderPaymentMethod.CardOrTransfer, 20261126
         )
-        assertEquals(20261126, request.date)
+        assertEquals(20261125, request.date)
+        assertEquals(20261126, request.deliveryDate)
         assertEquals(2, request.paymentMethod)
-        assertEquals(3, request.status)
+        assertEquals(4, request.status)
         assertEquals(notes, request.notes)
     }
 

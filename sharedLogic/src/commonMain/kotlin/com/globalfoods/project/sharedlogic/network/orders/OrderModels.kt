@@ -62,7 +62,8 @@ data class OrderRequest(
     @SerialName("Estatus") val status: Int,
     @SerialName("Observaciones") val notes: String? = null,
     @SerialName("lineas") val lines: List<OrderLineRequest>,
-    @EncodeDefault @SerialName("MetodoPago") val paymentMethod: Int = 0
+    @EncodeDefault @SerialName("MetodoPago") val paymentMethod: Int = 0,
+    @EncodeDefault @SerialName("FechaEntrega") val deliveryDate: Int? = null
 )
 
 @Serializable
@@ -86,7 +87,8 @@ data class OrderResponse(
     @SerialName("Observaciones") val notes: String? = null,
     @SerialName("lineas") val lines: List<OrderLineResponse> = emptyList(),
     @SerialName("Cliente") val client: Client? = null,
-    @SerialName("MetodoPago") val paymentMethod: Int? = null
+    @SerialName("MetodoPago") val paymentMethod: Int? = null,
+    @SerialName("FechaEntrega") val deliveryDate: Int? = null
 )
 
 /** El mismo pedido, sin cambios, pero con Estatus Cancelado (para PUT /api/pedidos/{id}). */
@@ -101,7 +103,8 @@ fun OrderResponse.toRequest(): OrderRequest = OrderRequest(
     status = status,
     notes = notes,
     lines = lines.map { OrderLineRequest(it.productCode, it.size, it.quantity, it.price, it.subtotal) },
-    paymentMethod = paymentMethod ?: 0
+    paymentMethod = paymentMethod ?: 0,
+    deliveryDate = deliveryDate
 )
 
 /** Los totales conservan el envío aunque Observaciones use el formato de la web. */
