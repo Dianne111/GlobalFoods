@@ -35,6 +35,16 @@ import com.globalfoods.project.sharedlogic.network.orders.orderStatus
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import kotlinx.coroutines.launch
 
+/** RF-PED-03: advertencia, sin bloquear, al cancelar un pedido Surtido. */
+internal const val SUPPLIED_CANCEL_WARNING = "Almacén ya surtió este pedido."
+
+/** RF-PED-03: confirmación antes de cancelar. [number] es el folio, p. ej. "#22". */
+internal fun cancelConfirmationText(number: String): String =
+    "¿Está seguro de que desea cancelar el pedido $number? Esta acción no se puede deshacer."
+
+/** RF-PED-03: mensaje al cancelar. */
+internal fun cancelledMessage(number: String): String = "Pedido $number cancelado."
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderDetailScreen(
@@ -51,6 +61,8 @@ fun OrderDetailScreen(
     var isCancelling by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
+    /** "Pedido #22 cancelado." al terminar la cancelación. */
+    var cancelledNotice by remember { mutableStateOf<String?>(null) }
     var response by remember(order.id) { mutableStateOf(order.response) }
     var linkedClient by remember(order.id) { mutableStateOf<Client?>(null) }
     var linkedBranch by remember(order.id) { mutableStateOf<Branch?>(null) }
@@ -217,10 +229,13 @@ fun OrderDetailScreen(
                         onDismissRequest = { if (!isCancelling) showCancelDialog = false },
                         title = { Text("Cancelar pedido") },
                         text = {
-                            Text(
-                                "El pedido ${order.number} pasará a Cancelado y ya no se surtirá. " +
-                                    "Se conserva en el historial y no se puede reactivar desde la app."
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                if (response?.orderStatus == OrderStatus.Supplied) {
+                                    // RF-PED-03: advierte sin bloquear.
+                                    Text(SUPPLIED_CANCEL_WARNING, color = Color(0xFFB45309), fontWeight = FontWeight.SemiBold)
+                                }
+                                Text(cancelConfirmationText(order.number))
+                            }
                         },
                         confirmButton = {
                             TextButton(
@@ -233,6 +248,7 @@ fun OrderDetailScreen(
                                             onSuccess = { updated ->
                                                 response = updated ?: current.copy(status = OrderStatus.Cancelled.code)
                                                 showCancelDialog = false
+                                                cancelledNotice = cancelledMessage(order.number)
                                                 reloadKey++
                                                 onCancelled()
                                             },
@@ -251,6 +267,11 @@ fun OrderDetailScreen(
                 error?.let {
                     AlertDialog(onDismissRequest = { error = null }, title = { Text("No se pudo cancelar") }, text = { Text(it) }, confirmButton = {
                         TextButton(onClick = { error = null }) { Text("Aceptar") }
+                    })
+                }
+                cancelledNotice?.let {
+                    AlertDialog(onDismissRequest = { cancelledNotice = null }, text = { Text(it) }, confirmButton = {
+                        TextButton(onClick = { cancelledNotice = null }) { Text("Aceptar") }
                     })
                 }
             }
@@ -363,12 +384,23 @@ fun OrderDetailScreen(
                         )
                     }
                 }
-                if (sessionRol.canCancelOrders && response?.orderStatus?.isCancellable == true) {
-                    TextButton(
-                        onClick = { showCancelDialog = true },
-                        enabled = !isLoading && !isCancelling,
-                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
-                    ) { Text("Cancelar pedido") }
+                val status = response?.orderStatus
+                if (sessionRol.canCancelOrders && status != null) {
+                    if (status.isCancellable) {
+                        TextButton(
+                            onClick = { showCancelDialog = true },
+                            enabled = !isLoading && !isCancelling,
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
+                        ) { Text("Cancelar pedido") }
+                    } else if (status != OrderStatus.Cancelled) {
+                        // RF-PED-03: En reparto o Entregado ya no se cancela; se explica en lugar del botón.
+                        Text(
+                            status.cancelBlockedMessage,
+                            color = Gray,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
                 }
             }
         }

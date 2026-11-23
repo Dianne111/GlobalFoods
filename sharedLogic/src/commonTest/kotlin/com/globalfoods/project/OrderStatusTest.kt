@@ -25,10 +25,22 @@ class OrderStatusTest {
     }
 
     @Test
-    fun ordersCanBeCancelledUntilTheyAreDelivered() {
+    fun ordersCanOnlyBeCancelledBeforeLeavingForDelivery() {
+        assertEquals(
+            listOf(OrderStatus.Created, OrderStatus.Supplied),
+            OrderStatus.entries.filter { it.isCancellable }
+        )
+        assertEquals(
+            "El pedido no puede cancelarse porque se encuentra En reparto.",
+            OrderStatus.InDelivery.cancelBlockedMessage
+        )
+    }
+
+    @Test
+    fun ordersInDeliveryAreStillInProcess() {
         assertEquals(
             listOf(OrderStatus.Created, OrderStatus.Supplied, OrderStatus.InDelivery),
-            OrderStatus.entries.filter { it.isCancellable }
+            OrderStatus.entries.filter { it.isInProcess }
         )
     }
 
