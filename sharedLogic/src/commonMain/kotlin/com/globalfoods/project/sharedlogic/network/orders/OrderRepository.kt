@@ -180,7 +180,9 @@ class OrderRepository internal constructor(private val client: HttpClient) {
     suspend fun cancelOrder(order: OrderResponse): Result<OrderResponse?> {
         val status = OrderStatus.fromCode(order.status)
         if (status?.isCancellable != true) {
-            return Result.failure(Exception("Este pedido ya no se puede cancelar (estado: ${status?.label ?: order.status})."))
+            return Result.failure(
+                Exception(status?.cancelBlockedMessage ?: "El pedido no puede cancelarse (estado ${order.status}).")
+            )
         }
         return updateOrder(order.id, cancellationRequest(order))
     }

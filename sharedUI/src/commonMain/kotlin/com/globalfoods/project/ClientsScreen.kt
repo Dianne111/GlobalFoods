@@ -82,11 +82,11 @@ internal fun sortClients(clients: List<AdminClient>): List<AdminClient> =
  * Mientras tenga alguno no se le puede dar de baja.
  */
 internal fun pendingDeliveryOrders(orders: List<OrderResponse>, clientId: Int): List<OrderResponse> =
-    orders.filter { (it.clientId ?: it.client?.id) == clientId && it.orderStatus?.isCancellable == true }
+    orders.filter { (it.clientId ?: it.client?.id) == clientId && it.orderStatus?.isInProcess == true }
 
 /** Pedidos dirigidos a la sucursal [branchId] que todavía no se entregan; impiden darla de baja. */
 internal fun pendingBranchOrders(orders: List<OrderResponse>, branchId: Int): List<OrderResponse> =
-    orders.filter { it.branchId == branchId && it.orderStatus?.isCancellable == true }
+    orders.filter { it.branchId == branchId && it.orderStatus?.isInProcess == true }
 
 /**
  * "tiene 2 pedidos en proceso (#10, #11). Podrá darse de baja cuando esos pedidos se entreguen
