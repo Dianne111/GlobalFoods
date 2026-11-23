@@ -350,6 +350,9 @@ fun NewOrderScreen(
         }
     }
 
+    // El "atrás" del sistema hace lo mismo que la flecha: regresa un paso o pregunta si descartar.
+    PlatformBackHandler(enabled = !showDiscardDialog) { goBack() }
+
     if (showDiscardDialog) {
         androidx.compose.ui.window.Dialog(onDismissRequest = { showDiscardDialog = false }) {
             Card(
