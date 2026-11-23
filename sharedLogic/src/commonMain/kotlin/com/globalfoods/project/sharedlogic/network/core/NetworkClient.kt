@@ -1,6 +1,5 @@
 package com.globalfoods.project.sharedlogic.network.core
 
-import com.globalfoods.project.sharedlogic.network.auth.UserRole
 import io.ktor.client.*
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.*
@@ -9,11 +8,7 @@ import io.ktor.client.request.header
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 
-var sessionToken: String? = null
-var sessionNombreUsuario: String? = null
-var sessionRol: UserRole = UserRole.Administrator
-/** IdCliente del usuario con rol Cliente; null mientras la API no lo devuelva en el login. */
-var sessionIdCliente: Int? = null
+// La sesión (token, rol, etc.) está en Session.kt.
 
 /** Tiempo máximo para conectar con el servidor. */
 const val CONNECT_TIMEOUT_MS = 10_000L
