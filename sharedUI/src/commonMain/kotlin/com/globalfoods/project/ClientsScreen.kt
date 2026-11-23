@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -139,12 +141,16 @@ internal suspend fun deactivateBranchIfNoPendingOrders(repository: OrderReposito
 fun ClientsScreen(
     refreshKey: Int = 0,
     onClientSelected: (AdminClient) -> Unit,
-    onTabSelected: (MainTab) -> Unit
+    onTabSelected: (MainTab) -> Unit,
+    /** Lo guarda App para conservar la posición al volver del detalle de un cliente. */
+    listState: LazyListState = rememberLazyListState(),
+    /** Últimos clientes cargados: se muestran al volver mientras se actualizan. */
+    cache: ListsCache = remember { ListsCache() }
 ) {
     val repository = remember { ClientRepository() }
     val scope = rememberCoroutineScope()
-    var clients by remember { mutableStateOf<List<AdminClient>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var clients by remember { mutableStateOf(cache.clients.orEmpty()) }
+    var isLoading by remember { mutableStateOf(cache.clients == null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -157,7 +163,7 @@ fun ClientsScreen(
         isLoading = true
         loadError = null
         repository.getClients().fold(
-            onSuccess = { clients = sortClients(it) },
+            onSuccess = { loaded -> clients = sortClients(loaded).also { cache.clients = it } },
             onFailure = { loadError = it.message }
         )
         isLoading = false
@@ -175,60 +181,62 @@ fun ClientsScreen(
         },
         bottomBar = { DashboardNavigation(MainTab.Clientes, onTabSelected) }
     ) { insets ->
-        Box(Modifier.fillMaxSize().padding(insets)) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 520.dp)
-                    .align(Alignment.TopCenter)
-                    .padding(horizontal = DashboardHorizontalPadding),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                item {
-                    Spacer(Modifier.height(6.dp))
-                    PrimaryAction("+  Nuevo cliente") { creating = true }
-                }
-                item { SearchField(query, { query = it }, placeholder = "Buscar cliente") }
-                item {
-                    SegmentedTabs(
-                        options = ClientsView.entries,
-                        selected = view,
-                        label = { option -> "${option.label} · ${searched.count { it.isActive == (option == ClientsView.Active) }}" },
-                        onSelected = { view = it }
-                    )
-                }
-                loadError?.let { message ->
-                    item {
-                        Column {
-                            Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-                            TextButton(onClick = { reloadKey++ }) { Text("Reintentar") }
+        Column(Modifier.fillMaxSize().padding(insets)) {
+            // Alta, búsqueda y pestañas fijas; solo la lista se desplaza.
+            PinnedTop(listState) {
+                PrimaryAction("+  Nuevo cliente") { creating = true }
+                SearchField(query, { query = it }, placeholder = "Buscar cliente")
+                SegmentedTabs(
+                    options = ClientsView.entries,
+                    selected = view,
+                    label = { option -> "${option.label} · ${searched.count { it.isActive == (option == ClientsView.Active) }}" },
+                    onSelected = { view = it }
+                )
+            }
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 520.dp)
+                        .align(Alignment.TopCenter)
+                        .padding(horizontal = DashboardHorizontalPadding),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item { Spacer(Modifier.height(2.dp)) }
+                    loadError?.let { message ->
+                        item {
+                            Column {
+                                Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                                TextButton(onClick = { reloadKey++ }) { Text("Reintentar") }
+                            }
                         }
                     }
-                }
-                when {
-                    isLoading && clients.isEmpty() -> item {
-                        Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Green)
+                    when {
+                        isLoading && clients.isEmpty() -> item {
+                            Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Green)
+                            }
+                        }
+                        visible.isEmpty() && loadError == null -> item {
+                            Text(
+                                when {
+                                    clients.isEmpty() -> "Todavía no hay clientes registrados."
+                                    query.isNotBlank() -> "No hay clientes que coincidan con la búsqueda."
+                                    else -> "No hay clientes ${view.label.lowercase()}."
+                                },
+                                color = Gray,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
+                            )
+                        }
+                        else -> items(visible, key = { it.id }) { client ->
+                            ClientCard(client, onClick = { onClientSelected(client) })
                         }
                     }
-                    visible.isEmpty() && loadError == null -> item {
-                        Text(
-                            when {
-                                clients.isEmpty() -> "Todavía no hay clientes registrados."
-                                query.isNotBlank() -> "No hay clientes que coincidan con la búsqueda."
-                                else -> "No hay clientes ${view.label.lowercase()}."
-                            },
-                            color = Gray,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
-                        )
-                    }
-                    else -> items(visible, key = { it.id }) { client ->
-                        ClientCard(client, onClick = { onClientSelected(client) })
-                    }
+                    item { Spacer(Modifier.height(12.dp)) }
                 }
-                item { Spacer(Modifier.height(12.dp)) }
             }
         }
     }

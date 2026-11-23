@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -63,17 +64,20 @@ fun DashboardScreen(
     onOrderSelected: (Order) -> Unit = {},
     onNewOrder: () -> Unit = {},
     onLogout: () -> Unit = {},
-    onTabSelected: (MainTab) -> Unit = {}
+    onTabSelected: (MainTab) -> Unit = {},
+    /** Lo guarda App para conservar la posición al volver del detalle de un pedido. */
+    listState: LazyListState = rememberLazyListState(),
+    /** Últimos datos cargados: se muestran al volver mientras se actualizan. */
+    cache: ListsCache = remember { ListsCache() }
 ) {
-    val listState = rememberLazyListState()
 
     val dashboardRepository = remember { DashboardRepository() }
     val orderRepository = remember { OrderRepository() }
 
-    var inventarioList by remember { mutableStateOf<List<ArticuloInventario>>(emptyList()) }
-    var isLoadingInventario by remember { mutableStateOf(true) }
+    var inventarioList by remember { mutableStateOf(cache.inventory.orEmpty()) }
+    var isLoadingInventario by remember { mutableStateOf(cache.inventory == null) }
     var errorMensaje by remember { mutableStateOf<String?>(null) }
-    var orderItems by remember { mutableStateOf<List<Order>>(emptyList()) }
+    var orderItems by remember { mutableStateOf(cache.dashboardOrders.orEmpty()) }
     var orderError by remember { mutableStateOf<String?>(null) }
     var ordersReloadKey by remember { mutableStateOf(0) }
 
@@ -82,7 +86,7 @@ fun DashboardScreen(
         isLoadingInventario = false
 
         resultado.fold(
-            onSuccess = { datos -> inventarioList = datos },
+            onSuccess = { datos -> inventarioList = datos; cache.inventory = datos },
             onFailure = { error -> errorMensaje = error.message }
         )
     }
@@ -91,7 +95,7 @@ fun DashboardScreen(
         orderError = null
         loadOrders(
             orderRepository,
-            onOrders = { orderItems = it },
+            onOrders = { orderItems = it; cache.dashboardOrders = it },
             onError = { orderError = it }
         )
     }
@@ -101,28 +105,33 @@ fun DashboardScreen(
         topBar = { DashboardHeader(onLogout) },
         bottomBar = { DashboardNavigation(MainTab.Inicio, onTabSelected) }
     ) { insets ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(insets)
         ) {
+            // El botón queda fijo arriba; el inventario y los pedidos se desplazan debajo.
+            if (sessionRol.canCreateOrders) {
+                PinnedTop(listState) {
+                    NewOrderButton(onClick = onNewOrder)
+                }
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .widthIn(max = 520.dp)
-                    .align(Alignment.Center)
+                    .weight(1f)
             ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
+                        .widthIn(max = 520.dp)
+                        .align(Alignment.TopCenter)
                         .padding(horizontal = DashboardHorizontalPadding),
                     verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
                     item {
-                        Spacer(Modifier.height(16.dp))
-                        NewOrderButton(onClick = onNewOrder)
-                        Spacer(Modifier.height(17.dp))
+                        Spacer(Modifier.height(if (sessionRol.canCreateOrders) 7.dp else 16.dp))
                         SectionLabel("INVENTARIO")
                         Spacer(Modifier.height(8.dp))
 

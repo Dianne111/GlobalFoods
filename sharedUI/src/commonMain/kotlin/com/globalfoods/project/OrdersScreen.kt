@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -82,11 +84,15 @@ internal fun searchOrders(orders: List<Order>, query: String): List<Order> {
 fun OrdersScreen(
     refreshKey: Int = 0,
     onOrderSelected: (Order) -> Unit,
-    onTabSelected: (MainTab) -> Unit
+    onTabSelected: (MainTab) -> Unit,
+    /** Lo guarda App para conservar la posición al volver del detalle de un pedido. */
+    listState: LazyListState = rememberLazyListState(),
+    /** Últimos pedidos cargados: se muestran al volver mientras se actualizan. */
+    cache: ListsCache = remember { ListsCache() }
 ) {
     val orderRepository = remember { OrderRepository() }
-    var orders by remember { mutableStateOf<List<Order>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var orders by remember { mutableStateOf(cache.orders.orEmpty()) }
+    var isLoading by remember { mutableStateOf(cache.orders == null) }
     var error by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
     // Se conservan al ir al detalle y regresar.
@@ -99,7 +105,7 @@ fun OrdersScreen(
         error = null
         loadOrders(
             orderRepository,
-            onOrders = { orders = sortOrders(it) },
+            onOrders = { loaded -> orders = sortOrders(loaded).also { cache.orders = it } },
             onError = { error = it }
         )
         isLoading = false
@@ -118,60 +124,62 @@ fun OrdersScreen(
         },
         bottomBar = { DashboardNavigation(MainTab.Pedidos, onTabSelected) }
     ) { insets ->
-        Box(Modifier.fillMaxSize().padding(insets)) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 520.dp)
-                    .align(Alignment.TopCenter)
-                    .padding(horizontal = DashboardHorizontalPadding),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                item {
-                    Spacer(Modifier.height(6.dp))
-                    SearchField(query = query, onQueryChange = { query = it })
-                }
-                item {
-                    ViewTabs(orders = searched, selected = view, onSelected = { view = it })
-                }
-                error?.let { message ->
-                    item {
-                        Column {
-                            Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-                            TextButton(onClick = { reloadKey++ }) { Text("Reintentar") }
+        Column(Modifier.fillMaxSize().padding(insets)) {
+            // Búsqueda y pestañas fijas; solo la lista se desplaza.
+            PinnedTop(listState) {
+                SearchField(query = query, onQueryChange = { query = it })
+                ViewTabs(orders = searched, selected = view, onSelected = { view = it })
+            }
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 520.dp)
+                        .align(Alignment.TopCenter)
+                        .padding(horizontal = DashboardHorizontalPadding),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item { Spacer(Modifier.height(2.dp)) }
+                    error?.let { message ->
+                        item {
+                            Column {
+                                Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                                TextButton(onClick = { reloadKey++ }) { Text("Reintentar") }
+                            }
                         }
                     }
-                }
-                when {
-                    isLoading && orders.isEmpty() -> item {
-                        Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Green)
+                    when {
+                        isLoading && orders.isEmpty() -> item {
+                            Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Green)
+                            }
+                        }
+                        visible.isEmpty() && error == null -> item {
+                            Text(
+                                when {
+                                    orders.isEmpty() -> "Todavía no hay pedidos registrados."
+                                    query.isNotBlank() -> "No hay pedidos que coincidan con la búsqueda."
+                                    else -> "No hay pedidos ${view.label.lowercase()}."
+                                },
+                                color = Gray,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
+                            )
+                        }
+                        else -> items(visible, key = { it.id }) { order ->
+                            OrderCard(
+                                order = order,
+                                onClick = { onOrderSelected(order) },
+                                onRegisterPayment = if (sessionRol.canRegisterPayment && order.response?.orderStatus?.acceptsPayment == true) {
+                                    { paymentOrder = order }
+                                } else null
+                            )
                         }
                     }
-                    visible.isEmpty() && error == null -> item {
-                        Text(
-                            when {
-                                orders.isEmpty() -> "Todavía no hay pedidos registrados."
-                                query.isNotBlank() -> "No hay pedidos que coincidan con la búsqueda."
-                                else -> "No hay pedidos ${view.label.lowercase()}."
-                            },
-                            color = Gray,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
-                        )
-                    }
-                    else -> items(visible, key = { it.id }) { order ->
-                        OrderCard(
-                            order = order,
-                            onClick = { onOrderSelected(order) },
-                            onRegisterPayment = if (sessionRol.canRegisterPayment && order.response?.orderStatus?.acceptsPayment == true) {
-                                { paymentOrder = order }
-                            } else null
-                        )
-                    }
+                    item { Spacer(Modifier.height(12.dp)) }
                 }
-                item { Spacer(Modifier.height(12.dp)) }
             }
         }
     }
