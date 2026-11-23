@@ -441,6 +441,8 @@ fun NewOrderScreen(
                 onContinue = { step = NewOrderStep.Summary },
                 onCatalog = { step = NewOrderStep.Catalog },
                 inventory = inventory,
+                inventoryLoading = loading,
+                inventoryError = error,
                 modifier = Modifier.padding(insets)
             )
             NewOrderStep.Summary -> SummaryStep(
@@ -448,7 +450,7 @@ fun NewOrderScreen(
                 inventory = inventory,
                 onFormChange = { form = it },
                 onEdit = { step = NewOrderStep.Details },
-                onProducts = { step = NewOrderStep.Catalog },
+                onProducts = { step = if (isClient) NewOrderStep.Catalog else NewOrderStep.Details },
                 submitLabel = if (isEditing) "Guardar cambios" else "Registrar pedido pendiente",
                 onSubmit = {
                     val products = selectedProducts(form.quantities, inventory)
@@ -698,13 +700,17 @@ private fun DetailsStep(
     onContinue: () -> Unit,
     onCatalog: () -> Unit,
     inventory: List<ArticuloInventario>,
+    inventoryLoading: Boolean = false,
+    inventoryError: String? = null,
     modifier: Modifier
 ) {
     // Vendedor/administrador: los errores se marcan en rojo bajo cada campo después del primer
     // intento de continuar (RF-PED-01). La vista del cliente conserva su comportamiento.
     var submitted by remember { mutableStateOf(false) }
-    val errors = if (isClient) OrderFormErrors() else validateOrderForm(form, isEditing, currentDateMillis())
+    val errors = if (isClient) OrderFormErrors() else validateOrderForm(form, isEditing, currentDateMillis(), inventory)
     val shown = if (submitted) errors else OrderFormErrors()
+    // Pedir más de lo disponible se avisa de inmediato; la cantidad en cero, al intentar continuar.
+    val shownLines = if (submitted) errors.lines else stockErrors(form.quantities, inventory)
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("DETALLES DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 22.dp))
@@ -780,9 +786,22 @@ private fun DetailsStep(
             }
             }
             Spacer(Modifier.height(10.dp))
-            Text("RESUMEN DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            if (isClient) {
+                Text("RESUMEN DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            } else {
+                // Igual que la web: se agregan productos y luego se ajusta su cantidad con − / +.
+                AdminProductsSection(
+                    quantities = form.quantities,
+                    inventory = inventory,
+                    loading = inventoryLoading,
+                    loadError = inventoryError,
+                    sectionError = shown.products,
+                    lineErrors = shownLines,
+                    onQuantitiesChange = { onFormChange(form.copy(quantities = it)) }
+                )
+            }
         }
-        items(selectedProducts(form.quantities, inventory), key = { it.talla }) { product ->
+        if (isClient) items(selectedProducts(form.quantities, inventory), key = { it.talla }) { product ->
             MiniProductCard(
                 product = product,
                 quantity = form.quantities[product.talla] ?: "0",
@@ -793,10 +812,11 @@ private fun DetailsStep(
             )
         }
         item {
-            Button(onClick = onCatalog, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1197C5)), modifier = Modifier.fillMaxWidth()) {
-                Text("Agregar productos")
+            if (isClient) {
+                Button(onClick = onCatalog, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1197C5)), modifier = Modifier.fillMaxWidth()) {
+                    Text("Agregar productos")
+                }
             }
-            shown.products?.let { FieldError(it) }
             Spacer(Modifier.height(14.dp))
             Text("MÉTODO DE ENTREGA", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Row(Modifier.fillMaxWidth()) {
