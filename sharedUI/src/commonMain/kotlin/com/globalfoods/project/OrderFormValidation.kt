@@ -8,32 +8,24 @@ import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
  */
 
 internal const val MAX_ORDER_NOTES = 250
-internal const val MAX_SPORADIC_CLIENT_NAME = 150
 
-internal const val SELECT_CLIENT_TYPE_MESSAGE = "Seleccione el tipo de cliente."
 internal const val SELECT_CLIENT_MESSAGE = "Seleccione un cliente."
 internal const val ADD_PRODUCT_MESSAGE = "Agregue al menos un producto al pedido."
 internal const val SELECT_BRANCH_MESSAGE = "Seleccione la sucursal de entrega."
-internal const val POSTAL_CODE_MESSAGE = "Capture un código postal de 5 dígitos."
 internal const val SELECT_DATE_MESSAGE = "Seleccione la fecha de creación."
 internal const val PAST_DATE_MESSAGE = "La fecha de creación no puede ser anterior a hoy."
 
 internal data class OrderFormErrors(
-    val clientType: String? = null,
     val client: String? = null,
-    val phone: String? = null,
     val products: String? = null,
     val branch: String? = null,
-    val street: String? = null,
-    val neighborhood: String? = null,
-    val postalCode: String? = null,
     val date: String? = null,
     val notes: String? = null,
     /** Cantidad en cero o mayor que la disponible, por talla (se muestra debajo de cada producto). */
     val lines: Map<String, String> = emptyMap()
 ) {
     val isValid: Boolean
-        get() = listOf(clientType, client, phone, products, branch, street, neighborhood, postalCode, date, notes)
+        get() = listOf(client, products, branch, date, notes)
             .all { it == null } && lines.isEmpty()
 }
 
@@ -47,30 +39,13 @@ internal fun validateOrderForm(
     todayMillis: Long,
     inventory: List<ArticuloInventario> = emptyList()
 ): OrderFormErrors {
-    val registered = form.clientType == "Cliente registrado"
-    val sporadic = form.clientType == "Cliente esporádico"
     val toAddress = form.deliveryMode != "Recolección"
     val dateMillis = dateToMillis(form.deliveryDate)
     return OrderFormErrors(
-        clientType = SELECT_CLIENT_TYPE_MESSAGE.takeIf { form.clientType.isBlank() },
-        client = when {
-            registered && form.clientId == null -> SELECT_CLIENT_MESSAGE
-            sporadic -> requiredError(form.client, MAX_SPORADIC_CLIENT_NAME)
-            else -> null
-        },
-        // El celular del cliente registrado viene de su ficha y no se edita aquí.
-        phone = if (sporadic) phoneError(form.phone) else null,
+        client = SELECT_CLIENT_MESSAGE.takeIf { (form.clientId ?: 0) <= 0 },
         // Los productos se agregan al pedido y luego se ajusta su cantidad: basta con que haya alguno.
         products = ADD_PRODUCT_MESSAGE.takeIf { form.quantities.isEmpty() },
-        branch = SELECT_BRANCH_MESSAGE.takeIf { toAddress && registered && form.branchId == null },
-        street = if (toAddress && sporadic) requiredError(form.street, Int.MAX_VALUE) else null,
-        neighborhood = if (toAddress && sporadic) requiredError(form.neighborhood, Int.MAX_VALUE) else null,
-        postalCode = when {
-            !toAddress || !sporadic -> null
-            form.postalCode.isBlank() -> REQUIRED_MESSAGE
-            form.postalCode.length != 5 || !form.postalCode.all(Char::isDigit) -> POSTAL_CODE_MESSAGE
-            else -> null
-        },
+        branch = SELECT_BRANCH_MESSAGE.takeIf { toAddress && (form.branchId ?: 0) <= 0 },
         date = when {
             dateMillis == null -> SELECT_DATE_MESSAGE
             !isEditing && !isSelectableCreationDate(dateMillis, todayMillis) -> PAST_DATE_MESSAGE
