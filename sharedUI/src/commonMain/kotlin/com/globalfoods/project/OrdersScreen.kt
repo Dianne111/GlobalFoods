@@ -33,6 +33,9 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,6 +61,7 @@ import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
 import com.globalfoods.project.sharedlogic.network.orders.orderStatus
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
+import kotlinx.coroutines.launch
 
 /** Ordena del pedido más reciente al más antiguo (por fecha de creación y luego por número). */
 internal fun sortOrders(orders: List<Order>): List<Order> =
@@ -98,6 +103,8 @@ fun OrdersScreen(
     cache: ListsCache = remember { ListsCache() }
 ) {
     val orderRepository = remember { OrderRepository() }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var orders by remember { mutableStateOf(cache.orders.orEmpty()) }
     var isLoading by remember { mutableStateOf(cache.orders == null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -123,6 +130,7 @@ fun OrdersScreen(
 
     Scaffold(
         containerColor = Background,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             ScreenHeader(eyebrow = "PANEL DE CONTROL", title = "PEDIDOS") {
                 // Refresca las etapas del almacén y las entregas confirmadas desde el móvil.
@@ -205,6 +213,14 @@ fun OrdersScreen(
                 orders = sortOrders(orders.map { if (it.id == updated.id) toOrder(updated, clients) else it })
                 paymentOrder = null
                 reloadKey++
+                if (updated.orderStatus == OrderStatus.Delivered) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            message = "Pedido entregado exitosamente",
+                            duration = SnackbarDuration.Short
+                        )
+                    }
+                }
             }
         )
     }
