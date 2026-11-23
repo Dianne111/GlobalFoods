@@ -1,6 +1,7 @@
 package com.globalfoods.project.sharedlogic.network.auth
 
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
+import com.globalfoods.project.sharedlogic.network.core.networkErrorMessage
 import com.globalfoods.project.sharedlogic.network.core.sessionNombreUsuario
 import com.globalfoods.project.sharedlogic.network.core.sessionIdCliente
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
@@ -41,9 +42,11 @@ class AuthRepository {
 
                 Result.failure(Exception(mensajeError))
             }
-        }catch (e: Throwable) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
             e.printStackTrace()
-            Result.failure(Exception("Error interno: ${e.message ?: e.toString()}"))
+            Result.failure(Exception(networkErrorMessage(e) ?: "Error interno: ${e.message ?: e.toString()}"))
         }
     }
 

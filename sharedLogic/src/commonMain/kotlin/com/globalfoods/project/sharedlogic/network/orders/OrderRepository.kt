@@ -5,6 +5,7 @@ import com.globalfoods.project.sharedlogic.network.core.ensureSuccess
 import com.globalfoods.project.sharedlogic.network.core.ensureSuccessWithApiMessage
 import com.globalfoods.project.sharedlogic.network.core.ensureWriteSuccess
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
+import com.globalfoods.project.sharedlogic.network.core.networkErrorMessage
 import io.ktor.client.call.body
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -195,6 +196,6 @@ class OrderRepository internal constructor(private val client: HttpClient) {
         } catch (e: ApiConflictException) {
             Result.failure(e)
         } catch (e: Throwable) {
-            Result.failure(Exception(e.message ?: "Error de comunicación con el servidor", e))
+            Result.failure(Exception(networkErrorMessage(e) ?: e.message ?: "Error de comunicación con el servidor", e))
         }
 }

@@ -1,10 +1,14 @@
 package com.globalfoods.project.sharedlogic.network.core
 
 import io.ktor.client.call.body
+import io.ktor.client.network.sockets.ConnectTimeoutException
+import io.ktor.client.network.sockets.SocketTimeoutException
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.errors.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -21,6 +25,19 @@ import kotlinx.serialization.json.JsonPrimitive
 fun ensureSuccess(response: HttpResponse, what: String) {
     if (response.status.isSuccess()) return
     error(errorMessageFor(response.status.value, what))
+}
+
+const val TIMEOUT_MESSAGE = "El servidor tardó demasiado en responder. Revisa tu conexión e intenta de nuevo."
+const val NO_CONNECTION_MESSAGE = "No se pudo conectar con el servidor. Revisa tu conexión a internet."
+
+/**
+ * Mensaje en español cuando la petición falló por la red (tiempo agotado o sin conexión), o null si
+ * el error es de otro tipo. Revisa también la causa, porque los repositorios envuelven las excepciones.
+ */
+fun networkErrorMessage(error: Throwable): String? = when (error) {
+    is HttpRequestTimeoutException, is ConnectTimeoutException, is SocketTimeoutException -> TIMEOUT_MESSAGE
+    is IOException -> NO_CONNECTION_MESSAGE
+    else -> error.cause?.takeIf { it !== error }?.let(::networkErrorMessage)
 }
 
 fun errorMessageFor(status: Int, what: String): String = when (status) {

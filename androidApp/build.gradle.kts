@@ -17,7 +17,9 @@ dependencies {
 
     implementation(libs.compose.uiToolingPreview)
     debugImplementation(libs.compose.uiTooling)
-    implementation("io.ktor:ktor-client-android:2.3.9")
+    // Motor HTTP de Android: OkHttp puede cancelar la petición completa (incluida la búsqueda del
+    // dominio) cuando se agota el tiempo límite de HttpTimeout.
+    implementation("io.ktor:ktor-client-okhttp:2.3.9")
 }
 
 android {

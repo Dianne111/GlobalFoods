@@ -2,6 +2,7 @@ package com.globalfoods.project.sharedlogic.network.dashboard
 
 import com.globalfoods.project.sharedlogic.network.core.errorMessageFor
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
+import com.globalfoods.project.sharedlogic.network.core.networkErrorMessage
 import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.http.*
@@ -22,7 +23,7 @@ class DashboardRepository {
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
-            Result.failure(Exception("No se pudo conectar con el servidor para cargar el catálogo.", e))
+            Result.failure(Exception(networkErrorMessage(e) ?: "No se pudo conectar con el servidor para cargar el catálogo.", e))
         }
     }
 }
