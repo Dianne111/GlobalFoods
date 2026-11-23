@@ -338,7 +338,8 @@ fun NewOrderScreen(
         when (step) {
             NewOrderStep.Catalog, NewOrderStep.Summary -> step = NewOrderStep.Details
             NewOrderStep.Details -> {
-                // Solo pregunta si se capturó algo respecto a como se abrió la pantalla.
+                // Solo pregunta si se capturó algo respecto a como se abrió la pantalla
+                // (cualquier dato: productos, cliente, fecha, sucursal, entrega u observaciones).
                 val hasChanges = form != initialForm
                 if (hasChanges) {
                     showDiscardDialog = true
@@ -373,12 +374,9 @@ fun NewOrderScreen(
                         TextButton(onClick = { showDiscardDialog = false }) { Text("Continuar editando") }
                         TextButton(onClick = {
                             showDiscardDialog = false
-                            if (isEditing) {
-                                onBack()
-                            } else {
-                                form = NewOrderFormState()
-                                step = NewOrderStep.Details
-                            }
+                            form = NewOrderFormState()
+                            step = NewOrderStep.Details
+                            onBack()
                         }) { Text("Descartar", color = Color(0xFFB91C1C)) }
                     }
                 }

@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -38,10 +41,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.clients.ClientRepository
+import com.globalfoods.project.sharedlogic.network.core.ApiConflictException
 import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.BranchRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
@@ -268,25 +273,17 @@ fun ClientDetailScreen(
                     onClick = {
                         isSaving = true
                         scope.launch {
-                            // Se vuelve a consultar por si se registró un pedido mientras la pantalla estaba abierta.
-                            val pending = orderRepository.getOrders().map { pendingDeliveryOrders(it, current.id) }
-                            pending.fold(
-                                onSuccess = { list ->
-                                    if (list.isNotEmpty()) {
-                                        confirmDeactivate = false
-                                        blockedNotice = clientBlockedTitle to pendingOrdersMessage(current.name, list)
+                            // La API revisa los pedidos pendientes; si entró uno nuevo responde 409.
+                            clientRepository.setActive(current, active = false).fold(
+                                onSuccess = { confirmDeactivate = false; onDeactivated() },
+                                onFailure = { e ->
+                                    confirmDeactivate = false
+                                    if (e is ApiConflictException) {
+                                        blockedNotice = clientBlockedTitle to clientInProcessMessage(current.name)
                                         reloadKey++
                                     } else {
-                                        clientRepository.setActive(current, active = false).fold(
-                                            onSuccess = { confirmDeactivate = false; onDeactivated() },
-                                            onFailure = { confirmDeactivate = false; actionError = it.message }
-                                        )
+                                        actionError = e.message
                                     }
-                                },
-                                onFailure = {
-                                    confirmDeactivate = false
-                                    actionError = "No se pudo verificar si el cliente tiene pedidos pendientes, " +
-                                        "así que no se dio de baja. ${it.message.orEmpty()}".trim()
                                 }
                             )
                             isSaving = false
@@ -308,8 +305,9 @@ fun ClientDetailScreen(
     }
 
     editingBranch?.let { branch ->
-        BranchDialog(
+        AdminBranchDialog(
             branch = branch,
+            otherActiveNames = branches.filter { it.status == 1 && it.id != branch.id }.map { it.name },
             saving = isSaving,
             onDismiss = { if (!isSaving) editingBranch = null },
             onSave = { name, address, phone ->
@@ -359,6 +357,80 @@ fun ClientDetailScreen(
             confirmButton = { TextButton(onClick = { actionError = null }) { Text("Aceptar") } }
         )
     }
+}
+
+/**
+ * Alta o edición de una sucursal desde la vista del vendedor/administrador, con las reglas de
+ * RF-SUC-01/03. La pestaña Sucursales del cliente usa [BranchDialog], que no cambia.
+ */
+@Composable
+private fun AdminBranchDialog(
+    branch: Branch,
+    otherActiveNames: List<String>,
+    saving: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (name: String, address: String, phone: String) -> Unit
+) {
+    var name by remember(branch) { mutableStateOf(branch.name) }
+    var address by remember(branch) { mutableStateOf(branch.address) }
+    var phone by remember(branch) { mutableStateOf(phoneInput(branch.phone)) }
+    var submitted by remember(branch) { mutableStateOf(false) }
+    val errors = validateBranchForm(name, address, phone, otherActiveNames)
+    val shown = if (submitted) errors else BranchFormErrors()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (branch.id == 0) "Nueva sucursal" else "Editar sucursal",
+                color = Navy,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                ValidatedTextField(
+                    name,
+                    { name = it.take(MAX_BRANCH_NAME) },
+                    label = "Nombre de la sucursal",
+                    error = shown.name,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ValidatedTextField(
+                    address,
+                    { address = it },
+                    label = "Dirección",
+                    error = shown.address,
+                    hint = "Calle y número, colonia y ciudad.",
+                    singleLine = false,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ValidatedTextField(
+                    phone,
+                    { phone = phoneInput(it) },
+                    label = "Teléfono (10 dígitos)",
+                    error = shown.phone,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    submitted = true
+                    if (errors.isValid) onSave(name, address, phone)
+                },
+                enabled = !saving
+            ) {
+                Text(if (saving) "Guardando…" else "Guardar")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancelar") } }
+    )
 }
 
 @Composable
