@@ -28,6 +28,7 @@ import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.paymentMethodLabel
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
 import com.globalfoods.project.sharedlogic.network.orders.orderStatus
@@ -80,7 +81,8 @@ fun OrderDetailScreen(
         linkedClient = embeddedClient
         linkedBranch = null
         // Un cliente no consulta el catálogo de clientes; usa los datos de su sesión.
-        if (ownClient == null && clientId != null && delivery == null &&
+        if (ownClient == null && clientId != null &&
+            (delivery?.clientName.isNullOrBlank() || delivery?.phone.isNullOrBlank()) &&
             (embeddedClient?.name.isNullOrBlank() || embeddedClient.phone.isBlank())
         ) {
             val clientsResult = repository.getClients()
@@ -91,10 +93,10 @@ fun OrderDetailScreen(
             }
         }
         val branchId = detail.branchId
-        if (branchId != null && delivery?.address.isNullOrBlank()) {
+        if (branchId != null && (delivery?.address.isNullOrBlank() || delivery?.branchName.isNullOrBlank())) {
             val branch = linkedClient?.branches?.firstOrNull { it.id == branchId && it.clientId == clientId }
             linkedBranch = branch
-            if (clientId != null && branch?.address.isNullOrBlank()) {
+            if (clientId != null && (branch?.address.isNullOrBlank() || branch?.name.isNullOrBlank())) {
                 val branchesResult = repository.getBranches(clientId)
                 linkedBranch = branchesResult.getOrNull()?.firstOrNull {
                     it.id == branchId && it.clientId == clientId
@@ -113,7 +115,8 @@ fun OrderDetailScreen(
     val clientName = delivery?.clientName?.takeIf { it.isNotBlank() }
         ?: linkedClient?.name?.takeIf { it.isNotBlank() }
         ?: summary.client
-    val phone = delivery?.phone ?: linkedClient?.phone
+    val phone = delivery?.phone?.takeIf { it.isNotBlank() }
+        ?: linkedClient?.phone?.takeIf { it.isNotBlank() } ?: linkedBranch?.phone
     val branchName = delivery?.branchName?.takeIf { it.isNotBlank() } ?: linkedBranch?.name
     val address = delivery?.address?.takeIf { it.isNotBlank() } ?: linkedBranch?.address
     val isPickup = delivery?.method == "Recolección"
@@ -131,7 +134,7 @@ fun OrderDetailScreen(
                 title = "Pedido ${order.number}",
                 onBack = onNavigateBack
             ) {
-                // El estado lo cambia almacén/reparto en la API; aquí solo se vuelve a consultar.
+                // Consulta el estado y las fechas guardadas en la API.
                 HeaderIconAction(Icons.Outlined.Refresh, "Actualizar estado", enabled = !isLoading) { reloadKey++ }
             }
         }
@@ -185,7 +188,9 @@ fun OrderDetailScreen(
                         Spacer(Modifier.height(14.dp))
                         OrderStatusProgress(response?.orderStatus)
                         Spacer(Modifier.height(14.dp))
-                        delivery?.clientType?.let { Text(it, color = Gray, fontSize = 13.sp) }
+                        val clientType = delivery?.clientType?.takeIf { it.isNotBlank() }
+                            ?: if ((response?.clientId ?: response?.client?.id ?: 0) > 0) "Cliente registrado" else null
+                        clientType?.let { Text(it, color = Gray, fontSize = 13.sp) }
                         Spacer(Modifier.height(8.dp))
                         OrderDetailField("Celular", phone)
                         Spacer(modifier = Modifier.height(16.dp))
@@ -259,10 +264,17 @@ fun OrderDetailScreen(
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("ENTREGA Y OBSERVACIONES", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        OrderDetailField("Fecha de entrega", formatOrderDate(response?.date))
+                        OrderDetailField("Fecha de creación", formatOrderDate(response?.date))
+                        OrderDetailField("Fecha de entrega", formatOrderDate(response?.deliveryDate), "Pendiente de entrega")
+                        OrderDetailField("Método de pago", paymentMethodLabel(response?.paymentMethod))
                         OrderDetailField("Método de entrega", deliveryMethod)
                         if (isPickup) {
-                            OrderDetailField("Punto de recolección", "Congeladora Global Foods México")
+                            OrderAddressField(PickupLocation.description, label = "Punto de recolección") {
+                                mapError = null
+                                if (!openAddress(PickupLocation.coordinates)) {
+                                    mapError = "No se pudo abrir el punto de recolección. Revisa las aplicaciones de mapas o el navegador."
+                                }
+                            }
                         } else {
                             if (response?.branchId != null || !branchName.isNullOrBlank()) {
                                 OrderDetailField("Sucursal", branchName)
@@ -273,15 +285,14 @@ fun OrderDetailScreen(
                                     mapError = "No se pudo abrir la dirección. Revisa las aplicaciones de mapas o el navegador."
                                 }
                             }
-                            mapError?.let { message ->
-                                Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-                            }
+                        }
+                        mapError?.let { message ->
+                            Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
                         }
                         delivery?.references?.takeIf { it.isNotBlank() }?.let {
                             OrderDetailField("Referencias", it)
                         }
                         OrderDetailField("Observaciones", observations.notes, "Sin observaciones")
-                        OrderDetailField("Costo de envío", delivery?.shippingCost?.let { "$$it" })
                     }
                 }
             }
@@ -365,7 +376,7 @@ fun OrderDetailScreen(
 }
 
 @Composable
-private fun OrderAddressField(address: String?, onOpenAddress: (String) -> Unit) {
+private fun OrderAddressField(address: String?, label: String = "Dirección de entrega", onOpenAddress: (String) -> Unit) {
     val destination = address?.trim().orEmpty()
     Column(
         modifier = Modifier
@@ -379,7 +390,7 @@ private fun OrderAddressField(address: String?, onOpenAddress: (String) -> Unit)
             )
             .padding(vertical = 4.dp)
     ) {
-        Text("Dirección de entrega", color = Gray, fontSize = 12.sp)
+        Text(label, color = Gray, fontSize = 12.sp)
         if (destination.isEmpty()) {
             Text("Sin dato registrado", color = Navy, fontSize = 14.sp)
         } else {

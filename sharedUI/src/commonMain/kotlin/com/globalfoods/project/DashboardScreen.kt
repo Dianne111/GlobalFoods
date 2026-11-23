@@ -44,6 +44,7 @@ import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.paymentMethodLabel
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 internal val Navy = Color(0xFF143D58)
@@ -211,15 +212,27 @@ internal suspend fun loadOrders(
                 it.clientId != null && it.client?.name.isNullOrBlank() &&
                     OrderObservations.decode(it.notes).delivery?.clientName.isNullOrBlank()
             }
+            var clientsById = emptyMap<Int, Client>()
             if (needsClients) {
                 orderRepository.getClients().fold(
                     onSuccess = { clients ->
-                        val clientsById = clients.associateBy { it.id }
+                        clientsById = clients.associateBy { it.id }
                         onOrders(response.map { toOrder(it, clientsById) })
                     },
                     onFailure = { onError("No se pudieron cargar los nombres de los clientes.") }
                 )
             }
+            // El formato web no duplica el nombre de la sucursal dentro de Observaciones.
+            val branchNames = mutableMapOf<Int, String>()
+            val clientsWithBranches = response.filter {
+                (it.branchId ?: 0) > 0 && OrderObservations.decode(it.notes).delivery?.branchName.isNullOrBlank()
+            }.mapNotNull { it.clientId ?: it.client?.id }.distinct()
+            for (clientId in clientsWithBranches) {
+                orderRepository.getBranches(clientId).onSuccess { branches ->
+                    branchNames.putAll(branches.associate { it.id to it.name })
+                }
+            }
+            onOrders(response.map { toOrder(it, clientsById, branchNames) })
         },
         onFailure = { onError("No se pudieron cargar los pedidos.") }
     )
@@ -270,7 +283,8 @@ internal fun toOrder(
         items = "${response.lines.size} Items",
         status = statusLabel(response.status),
         statusColor = statusColor(response.status),
-        elapsed = formatOrderDate(response.date)?.let { "Entrega $it" } ?: "Sin fecha",
+        elapsed = formatOrderDate(response.deliveryDate)?.let { "Entrega $it" }
+            ?: formatOrderDate(response.date)?.let { "Creado $it" } ?: "Sin fecha",
         accent = statusColor(response.status),
         totalKg = "${response.totalKg} kg",
         products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) },
@@ -279,7 +293,9 @@ internal fun toOrder(
         destination = when {
             delivery?.method == "Recolección" -> "Recolección"
             !delivery?.branchName.isNullOrBlank() -> delivery?.branchName.orEmpty()
-            else -> response.branchId?.let(branchNames::get).orEmpty()
+            else -> response.branchId?.let { id ->
+                branchNames[id] ?: client?.branches?.firstOrNull { it.id == id && it.clientId == client.id }?.name
+            }.orEmpty()
         }
     )
 }
@@ -466,7 +482,7 @@ internal fun DashboardNavigation(
 }
 
 @Composable
-internal fun OrderCard(order: Order, onClick: () -> Unit) {
+internal fun OrderCard(order: Order, onClick: () -> Unit, onRegisterPayment: (() -> Unit)? = null) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = CardShape,
@@ -499,6 +515,19 @@ internal fun OrderCard(order: Order, onClick: () -> Unit) {
                     Icon(Icons.Outlined.LocalShipping, null, tint = Gray, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(3.dp))
                     Text(order.elapsed, color = Gray, fontSize = 10.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("Pago: ${paymentMethodLabel(order.response?.paymentMethod)}", color = Navy, fontSize = 12.sp)
+                if (onRegisterPayment != null) {
+                    Spacer(Modifier.height(18.dp))
+                    Button(
+                        onClick = onRegisterPayment,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Navy, contentColor = Color.White)
+                    ) {
+                        Text("Registrar pago", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
         }

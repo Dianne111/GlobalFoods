@@ -82,7 +82,6 @@ import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 private enum class NewOrderStep { Details, Catalog, Summary }
 
-private val freezerAddress = "Congeladora Global Foods México, Av. Principal 123, Guadalajara, Jalisco"
 private val customerBranches = listOf(
     "Sucursal Centro" to "Av. Juárez 120, Centro, Guadalajara, Jalisco",
     "Sucursal Norte" to "Av. Federalismo 850, Col. Lomas, Guadalajara, Jalisco"
@@ -102,20 +101,16 @@ internal data class NewOrderFormState(
     val postalCode: String = "",
     val deliveryDate: String = millisToDate(currentDateMillis()),
     val notes: String = "",
-    val shipping: String = "",
     val deliveryMode: String = "Dirección",
     val payment: String = "Transferencia",
     val references: String = ""
 ) {
-    val shippingCost: Double
-        get() = shipping.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
-
     val hasCapturedData: Boolean
         get() = quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true } ||
             client.isNotBlank() || phone.isNotBlank() || branch.isNotBlank() ||
             address.isNotBlank() || street.isNotBlank() || neighborhood.isNotBlank() ||
             postalCode.isNotBlank() || deliveryDate.isNotBlank() ||
-            notes.isNotBlank() || shipping.isNotBlank()
+            notes.isNotBlank()
 }
 
 internal const val OUT_OF_STOCK_MESSAGE =
@@ -152,7 +147,10 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
     val clientType = delivery?.clientType?.takeIf { it.isNotBlank() }
         ?: if (order.clientId != null) "Cliente registrado" else "Cliente esporádico"
     val isPickup = delivery?.method == "Recolección"
-    val address = if (isPickup) freezerAddress else delivery?.address.orEmpty()
+    val clientId = order.clientId ?: order.client?.id
+    val linkedBranch = order.client?.branches?.firstOrNull { it.id == order.branchId && it.clientId == clientId }
+    val address = if (isPickup) PickupLocation.description else delivery?.address?.takeIf { it.isNotBlank() }
+        ?: linkedBranch?.address.orEmpty()
     val (street, neighborhood, postalCode) =
         if (!isPickup && clientType == "Cliente esporádico") splitAddress(address) else Triple("", "", "")
     return NewOrderFormState(
@@ -163,15 +161,16 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
         branchId = order.branchId.takeUnless { isPickup },
         client = delivery?.clientName?.takeIf { it.isNotBlank() } ?: order.client?.name.orEmpty(),
         clientType = clientType,
-        phone = delivery?.phone?.takeIf { it.isNotBlank() } ?: order.client?.phone.orEmpty(),
-        branch = if (isPickup) "Congeladora Global Foods" else delivery?.branchName.orEmpty(),
+        phone = delivery?.phone?.takeIf { it.isNotBlank() } ?: order.client?.phone?.takeIf { it.isNotBlank() }
+            ?: linkedBranch?.phone.orEmpty(),
+        branch = if (isPickup) "Congeladora Global Foods" else delivery?.branchName?.takeIf { it.isNotBlank() }
+            ?: linkedBranch?.name.orEmpty(),
         address = address,
         street = street,
         neighborhood = neighborhood,
         postalCode = postalCode,
         deliveryDate = orderDateToText(order.date) ?: millisToDate(currentDateMillis()),
         notes = observations.notes,
-        shipping = delivery?.shippingCost?.takeIf { it > 0 }?.let(::formatQuantity).orEmpty(),
         deliveryMode = if (isPickup) "Recolección" else "Dirección",
         references = delivery?.references.orEmpty()
     )
@@ -303,6 +302,15 @@ fun NewOrderScreen(
                         loadingBranches = false
                         // Al repetir un pedido, la sucursal original pudo haberse eliminado.
                         val current = form
+                        if (current.deliveryMode != "Recolección") {
+                            selectedClientBranches.firstOrNull { it.id == current.branchId }?.let { branch ->
+                                form = current.copy(
+                                    branch = current.branch.ifBlank { branch.name },
+                                    address = current.address.ifBlank { branch.address },
+                                    phone = current.phone.ifBlank { branch.phone }
+                                )
+                            }
+                        }
                         if (!isEditing && current.branchId != null &&
                             selectedClientBranches.none { it.id == current.branchId }
                         ) {
@@ -330,19 +338,10 @@ fun NewOrderScreen(
         when (step) {
             NewOrderStep.Catalog, NewOrderStep.Summary -> step = NewOrderStep.Details
             NewOrderStep.Details -> {
-                // Evaluamos si el usuario realmente escribió o modificó algo clave
-                val hasRealChanges = if (isEditing) {
-                    // Si estamos editando, comparamos las cantidades de productos o las notas principales
-                    form.quantities != initialForm.quantities ||
-                            form.notes != initialForm.notes ||
-                            form.shipping != initialForm.shipping
-                } else {
-                    // Si es un pedido nuevo, basta con ver si hay productos seleccionados o datos de cliente
-                    form.quantities.values.any { it.toDoubleOrNull() ?: 0.0 > 0.0 } ||
-                            form.client.isNotBlank() ||
-                            form.notes.isNotBlank()
-                }
-                if (hasRealChanges) {
+                // Solo pregunta si se capturó algo respecto a como se abrió la pantalla
+                // (cualquier dato: productos, cliente, fecha, sucursal, entrega u observaciones).
+                val hasChanges = form != initialForm
+                if (hasChanges) {
                     showDiscardDialog = true
                 } else {
                     onBack()
@@ -450,8 +449,16 @@ fun NewOrderScreen(
                 onSubmit = {
                     val products = selectedProducts(form.quantities, inventory)
                     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
-                    val total = products.sumOf { it.precio * (form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0) } +
-                        form.shippingCost
+                    val total = orderProductsTotal(form.quantities, inventory)
+                    val selectedCreationDate = dateToMillis(form.deliveryDate)
+                    if (selectedCreationDate == null) {
+                        saveError = "Selecciona una fecha de creación válida."
+                        return@SummaryStep
+                    }
+                    if (!isEditing && !isSelectableCreationDate(selectedCreationDate)) {
+                        saveError = "La fecha de creación debe ser hoy o un día futuro."
+                        return@SummaryStep
+                    }
                     val date = form.deliveryDate.split('/').let {
                         if (it.size == 3) "${it[2]}${it[1]}${it[0]}".toIntOrNull() else null
                     } ?: 0
@@ -472,17 +479,21 @@ fun NewOrderScreen(
                         address = if (isPickup) "" else form.address,
                         phone = form.phone.trim(),
                         branchName = if (isPickup) "" else form.branch,
-                        references = form.references,
-                        shippingCost = form.shippingCost
+                        references = form.references
                     )
                     val request = OrderRequest(
                         clientId = form.clientId.takeIf { form.clientType == "Cliente registrado" },
                         branchId = form.branchId.takeUnless { isPickup },
                         date = date,
+                        paymentMethod = orderToEdit?.paymentMethod ?: 0,
+                        deliveryDate = orderToEdit?.deliveryDate,
                         totalKg = totalKg,
                         total = total,
                         status = orderToEdit?.status ?: 1,
-                        notes = OrderObservations(form.notes, delivery).encode(),
+                        notes = OrderObservations(form.notes, delivery).let { observations ->
+                            if (form.clientType == "Cliente registrado") observations.encodeForWeb(date)
+                            else observations.encode()
+                        },
                         lines = products.map {
                             val quantity = form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0
                             OrderLineRequest(it.codigoProducto, it.talla, quantity, it.precio, quantity * it.precio)
@@ -512,6 +523,7 @@ fun NewOrderScreen(
     if (showDatePicker) {
         DateSelectionDialog(
             initialValue = form.deliveryDate,
+            allowPastDates = isEditing,
             onDismissRequest = { showDatePicker = false },
             onConfirm = { date ->
                 form = form.copy(deliveryDate = date)
@@ -777,7 +789,7 @@ private fun DetailsStep(
                                     deliveryMode = mode,
                                     branchId = null,
                                     branch = if (mode == "Recolección") "Congeladora Global Foods" else "",
-                                    address = if (mode == "Recolección") freezerAddress else "",
+                                    address = if (mode == "Recolección") PickupLocation.description else "",
                                     street = if (mode == "Recolección") "" else form.street,
                                     neighborhood = if (mode == "Recolección") "" else form.neighborhood,
                                     postalCode = if (mode == "Recolección") "" else form.postalCode
@@ -791,7 +803,7 @@ private fun DetailsStep(
                 }
             }
             if (form.deliveryMode == "Recolección") {
-                AddressCard(freezerAddress, title = "Dirección de la congeladora")
+                AddressCard(PickupLocation.description, title = "Punto de recolección", mapsUrl = PickupLocation.mapsUrl)
             } else if (form.clientType == "Cliente registrado") {
                 BranchField(
                     value = form.branch,
@@ -883,7 +895,6 @@ private fun DetailsStep(
             }
             DateField(form.deliveryDate, onClick = onDatePicker)
             FormField("Observaciones", form.notes, { onFormChange(form.copy(notes = it)) }, singleLine = false)
-            FormField("Costo de envío", form.shipping, { onFormChange(form.copy(shipping = it)) }, KeyboardType.Decimal)
             val hasProducts = form.quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true }
             val hasClient = if (form.clientType == "Cliente registrado") form.clientId != null else form.client.isNotBlank()
             val hasLocation = form.deliveryMode == "Recolección" ||
@@ -917,11 +928,7 @@ private fun SummaryStep(
 ) {
     val products = selectedProducts(form.quantities, inventory)
     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
-    val subtotal = products.sumOf { product ->
-        (form.quantities[product.talla]?.toDoubleOrNull() ?: 0.0) * product.precio
-    }
-    val shippingCost = form.shippingCost
-    val total = subtotal + shippingCost
+    val total = orderProductsTotal(form.quantities, inventory)
     LazyColumn(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("CLIENTE", color = Gray, fontSize = 12.sp)
@@ -929,7 +936,7 @@ private fun SummaryStep(
             Spacer(Modifier.height(8.dp))
             Text("UBICACIÓN DE ENTREGA", color = Gray, fontSize = 12.sp)
             Text(
-                if (form.deliveryMode == "Recolección") freezerAddress
+                if (form.deliveryMode == "Recolección") PickupLocation.description
                 else form.address.ifBlank { "Ubicación pendiente" },
                 color = Navy,
                 fontSize = 15.sp,
@@ -951,8 +958,7 @@ private fun SummaryStep(
         item {
             HorizontalDivider()
             SummaryAmountRow("Total de kilos", "${totalKg} kg")
-            SummaryAmountRow("Subtotal", "$${subtotal}")
-            SummaryAmountRow("Costo de envío", "$${shippingCost}")
+            SummaryAmountRow("Subtotal", "$${total}")
             SummaryAmountRow("Descuento", "$0.00")
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             SummaryAmountRow("Importe total", "$${total}", emphasized = true)
@@ -988,13 +994,29 @@ private fun SummaryAmountRow(label: String, value: String, emphasized: Boolean =
 private fun selectedProducts(quantities: Map<String, String>, inventory: List<ArticuloInventario>) =
     inventory.filter { quantities[it.talla]?.toDoubleOrNull()?.let { value -> value > 0 } == true }
 
-private fun normalizeQuantity(value: String, maximum: Double): String {
-    val normalized = value.replace(',', '.')
-        .filter { it.isDigit() || it == '.' }
-    val amount = normalized.toDoubleOrNull() ?: return ""
-    return amount.coerceIn(0.0, maximum).let { result ->
-        if (result == 0.0) "" else result.toString().trimEnd('0').trimEnd('.')
+/** Importe del pedido: únicamente cantidad por precio de los productos seleccionados. */
+internal fun orderProductsTotal(quantities: Map<String, String>, inventory: List<ArticuloInventario>): Double =
+    selectedProducts(quantities, inventory).sumOf { product ->
+        (quantities[product.talla]?.toDoubleOrNull() ?: 0.0) * product.precio
     }
+
+/** Conserva estados de escritura como "0." y "10." antes de capturar la fracción. */
+internal fun normalizeQuantity(value: String, maximum: Double): String {
+    val cleaned = value.replace(',', '.')
+        .filter { it.isDigit() || it == '.' }
+    // Un segundo separador no forma parte de una cantidad válida.
+    val prefix = Regex("^\\d*(?:\\.\\d*)?").find(cleaned)?.value.orEmpty()
+    if (prefix.isEmpty()) return ""
+    val normalized = prefix.trimStart('0').let {
+        when {
+            it.isEmpty() -> "0"
+            it.startsWith('.') -> "0$it"
+            else -> it
+        }
+    }
+    val amount = normalized.toDoubleOrNull() ?: return ""
+    if (!amount.isFinite()) return ""
+    return if (amount > maximum) formatQuantity(maximum) else normalized
 }
 
 @Composable
@@ -1079,7 +1101,7 @@ private fun buildAddress(street: String, neighborhood: String, postalCode: Strin
     ).filter(String::isNotBlank).joinToString(", ")
 
 @Composable
-private fun AddressCard(address: String, title: String = "Dirección de entrega") {
+private fun AddressCard(address: String, title: String = "Dirección de entrega", mapsUrl: String? = null) {
     val uriHandler = LocalUriHandler.current
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -1094,7 +1116,7 @@ private fun AddressCard(address: String, title: String = "Dirección de entrega"
             )
             TextButton(onClick = {
                 uriHandler.openUri(
-                    "https://www.google.com/maps/search/?api=1&query=${address.ifBlank { "Global Foods Mexico" }.replace(" ", "+")}"
+                    mapsUrl ?: "https://www.google.com/maps/search/?api=1&query=${address.ifBlank { "Global Foods Mexico" }.replace(" ", "+")}"
                 )
             }) {
                 Text("Revisar ubicación en Google Maps", color = Color(0xFF168BC1))
@@ -1115,7 +1137,7 @@ private fun DateField(value: String, onClick: () -> Unit) {
             onValueChange = {},
             readOnly = true,
             enabled = false,
-            label = { Text("Fecha de entrega") },
+            label = { Text("Fecha de creación") },
             placeholder = { Text("Seleccionar fecha") },
             modifier = Modifier.fillMaxWidth(),
             trailingIcon = { Text("▣", color = Navy, modifier = Modifier.padding(end = 12.dp)) },
@@ -1135,18 +1157,24 @@ private fun DateField(value: String, onClick: () -> Unit) {
 @Composable
 private fun DateSelectionDialog(
     initialValue: String,
+    allowPastDates: Boolean = false,
     onDismissRequest: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
     val today = currentDateMillis()
-    val firstSelectableDate = today + MILLIS_PER_DAY
     val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = dateToMillis(initialValue)
-            ?.takeIf { it >= firstSelectableDate },
+        initialSelectedDateMillis = (dateToMillis(initialValue) ?: today).let {
+            if (allowPastDates) it else maxOf(it, today)
+        },
         yearRange = 1900..2100,
-        selectableDates = object : SelectableDates {
-            override fun isSelectableDate(utcTimeMillis: Long): Boolean =
-                utcTimeMillis >= firstSelectableDate
+        selectableDates = remember(allowPastDates) {
+            object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                    allowPastDates || isSelectableCreationDate(utcTimeMillis)
+
+                override fun isSelectableYear(year: Int): Boolean =
+                    allowPastDates || year >= currentPaymentDate() / 10000
+            }
         }
     )
     val selectedDate = datePickerState.selectedDateMillis
@@ -1159,8 +1187,13 @@ private fun DateSelectionDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(millisToDate(selectedDate!!)) },
-                enabled = selectedDate != null
+                onClick = {
+                    val selected = datePickerState.selectedDateMillis
+                    if (selected != null && (allowPastDates || isSelectableCreationDate(selected))) {
+                        onConfirm(millisToDate(selected))
+                    }
+                },
+                enabled = selectedDate != null && (allowPastDates || isSelectableCreationDate(selectedDate))
             ) { Text("Aceptar") }
         },
         dismissButton = {
@@ -1181,7 +1214,7 @@ private fun DateSelectionDialog(
             },
             headline = {
                 Text(
-                    "Selecciona la fecha de entrega",
+                    "Selecciona la fecha de creación",
                     color = Gray,
                     fontSize = 11.sp,
                     maxLines = 1
@@ -1192,10 +1225,16 @@ private fun DateSelectionDialog(
     }
 }
 
-private fun currentDateMillis(): Long =
-    (kotlin.time.Clock.System.now().toEpochMilliseconds() / MILLIS_PER_DAY) * MILLIS_PER_DAY
+// DatePicker representa días con medianoche UTC; el día civil se toma del teléfono.
+private fun currentDateMillis(): Long {
+    val date = currentPaymentDate()
+    return daysFromCivil(date / 10000, date / 100 % 100, date % 100) * MILLIS_PER_DAY
+}
 
-private fun dateToMillis(value: String): Long? {
+internal fun isSelectableCreationDate(dateMillis: Long?, todayMillis: Long = currentDateMillis()): Boolean =
+    dateMillis != null && dateMillis >= todayMillis
+
+internal fun dateToMillis(value: String): Long? {
     if (!value.matches(Regex("\\d{2}/\\d{2}/\\d{4}"))) return null
 
     val day = value.substring(0, 2).toInt()

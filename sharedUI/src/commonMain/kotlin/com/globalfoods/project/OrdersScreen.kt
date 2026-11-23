@@ -47,8 +47,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
+import com.globalfoods.project.sharedlogic.network.orders.orderStatus
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
 
-/** Ordena del pedido más reciente al más antiguo (por fecha de entrega y luego por número). */
+/** Ordena del pedido más reciente al más antiguo (por fecha de creación y luego por número). */
 internal fun sortOrders(orders: List<Order>): List<Order> =
     orders.sortedWith(compareByDescending<Order> { it.response?.date ?: 0 }.thenByDescending { it.id })
 
@@ -90,6 +92,7 @@ fun OrdersScreen(
     // Se conservan al ir al detalle y regresar.
     var view by rememberSaveable { mutableStateOf(OrdersView.Active) }
     var query by rememberSaveable { mutableStateOf("") }
+    var paymentOrder by remember { mutableStateOf<Order?>(null) }
 
     LaunchedEffect(refreshKey, reloadKey) {
         isLoading = true
@@ -109,7 +112,7 @@ fun OrdersScreen(
         containerColor = Background,
         topBar = {
             ScreenHeader(eyebrow = "PANEL DE CONTROL", title = "PEDIDOS") {
-                // Los estados los actualiza almacén/reparto en la API; aquí solo se vuelven a consultar.
+                // Refresca las etapas del almacén y las entregas confirmadas desde el móvil.
                 HeaderIconAction(Icons.Outlined.Refresh, "Actualizar pedidos", enabled = !isLoading) { reloadKey++ }
             }
         },
@@ -159,12 +162,31 @@ fun OrdersScreen(
                         )
                     }
                     else -> items(visible, key = { it.id }) { order ->
-                        OrderCard(order, onClick = { onOrderSelected(order) })
+                        OrderCard(
+                            order = order,
+                            onClick = { onOrderSelected(order) },
+                            onRegisterPayment = if (sessionRol.canRegisterPayment && order.response?.orderStatus?.acceptsPayment == true) {
+                                { paymentOrder = order }
+                            } else null
+                        )
                     }
                 }
                 item { Spacer(Modifier.height(12.dp)) }
             }
         }
+    }
+
+    paymentOrder?.let { order ->
+        RegisterPaymentDialog(
+            order = order,
+            onDismissRequest = { paymentOrder = null },
+            onConfirmed = { updated ->
+                val clients = orders.mapNotNull { it.response?.client }.associateBy { it.id }
+                orders = sortOrders(orders.map { if (it.id == updated.id) toOrder(updated, clients) else it })
+                paymentOrder = null
+                reloadKey++
+            }
+        )
     }
 }
 
