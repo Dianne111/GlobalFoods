@@ -1,5 +1,6 @@
 package com.globalfoods.project
 
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,6 +29,12 @@ fun App() {
         var pedidoBase by remember { mutableStateOf<OrderResponse?>(null) }
         // Cliente abierto desde la pestaña Clientes (administrador/empleado)
         var clienteSeleccionado by remember { mutableStateOf<AdminClient?>(null) }
+        // Posición de las listas: se conserva al ir a un detalle y regresar; se reinicia al cerrar sesión.
+        var sesion by remember { mutableStateOf(0) }
+        val inicioListState = remember(sesion) { LazyListState() }
+        val pedidosListState = remember(sesion) { LazyListState() }
+        val clientesListState = remember(sesion) { LazyListState() }
+        val listas = remember(sesion) { ListsCache() }
 
         val abrirPestana: (MainTab) -> Unit = { tab ->
             when (tab) {
@@ -45,6 +52,7 @@ fun App() {
             pedidoBase = null
             clienteSeleccionado = null
             pantallaLista = "Dashboard"
+            sesion++
             pantallaActual = "Login"
         }
         val abrirDetalle: (Order, String) -> Unit = { order, origen ->
@@ -52,6 +60,16 @@ fun App() {
             pantallaLista = origen
             pantallaActual = "Detalles"
         }
+
+        // Botón "atrás" del sistema: regresa como la flecha de cada pantalla. En Inicio y en el login
+        // cierra la app (comportamiento normal de Android); Nuevo/Editar pedido lo atienden ellas mismas.
+        val atras: (() -> Unit)? = when (pantallaActual) {
+            "Pedidos", "Clientes", "Sucursales" -> { { pantallaActual = "Dashboard" } }
+            "Detalles" -> { { pantallaActual = pantallaLista } }
+            "DetalleCliente" -> { { pantallaActual = "Clientes" } }
+            else -> null
+        }
+        PlatformBackHandler(enabled = atras != null) { atras?.invoke() }
 
         when (pantallaActual) {
             "Splash" -> {
@@ -92,7 +110,9 @@ fun App() {
                             pantallaActual = "NuevoPedido"
                         },
                         onLogout = cerrarSesion,
-                        onTabSelected = abrirPestana
+                        onTabSelected = abrirPestana,
+                        listState = inicioListState,
+                        cache = listas
                     )
                 }
             }
@@ -106,7 +126,9 @@ fun App() {
                         clienteSeleccionado = cliente
                         pantallaActual = "DetalleCliente"
                     },
-                    onTabSelected = abrirPestana
+                    onTabSelected = abrirPestana,
+                    listState = clientesListState,
+                    cache = listas
                 )
             }
             "DetalleCliente" -> {
@@ -131,7 +153,9 @@ fun App() {
                 OrdersScreen(
                     refreshKey = refreshDashboard,
                     onOrderSelected = { order -> abrirDetalle(order, "Pedidos") },
-                    onTabSelected = abrirPestana
+                    onTabSelected = abrirPestana,
+                    listState = pedidosListState,
+                    cache = listas
                 )
             }
             "NuevoPedido" -> {
