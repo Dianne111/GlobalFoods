@@ -62,9 +62,11 @@ class OrderFormValidationTest {
     }
 
     @Test
-    fun zeroQuantitiesDoNotCountAsProducts() {
+    fun aProductInZeroIsMarkedOnItsOwnLine() {
         val errors = validateOrderForm(validRegistered.copy(quantities = mapOf("U10" to "0")), false, today)
-        assertEquals(ADD_PRODUCT_MESSAGE, errors.products)
+        assertNull(errors.products)
+        assertEquals(mapOf("U10" to QUANTITY_MESSAGE), errors.lines)
+        assertEquals(ADD_PRODUCT_MESSAGE, validateOrderForm(validRegistered.copy(quantities = emptyMap()), false, today).products)
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.globalfoods.project
 
+import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
+
 /*
  * Validación del formulario de pedido del vendedor/administrador (RF-PED-01). Cada campo devuelve
  * el mensaje que se muestra debajo de él, o null si es válido. La vista del cliente no la usa.
@@ -26,18 +28,25 @@ internal data class OrderFormErrors(
     val neighborhood: String? = null,
     val postalCode: String? = null,
     val date: String? = null,
-    val notes: String? = null
+    val notes: String? = null,
+    /** Cantidad en cero o mayor que la disponible, por talla (se muestra debajo de cada producto). */
+    val lines: Map<String, String> = emptyMap()
 ) {
     val isValid: Boolean
         get() = listOf(clientType, client, phone, products, branch, street, neighborhood, postalCode, date, notes)
-            .all { it == null }
+            .all { it == null } && lines.isEmpty()
 }
 
 /**
  * [todayMillis] es el día de hoy; al editar ([isEditing]) se permite conservar una fecha anterior,
  * igual que el selector de fecha.
  */
-internal fun validateOrderForm(form: NewOrderFormState, isEditing: Boolean, todayMillis: Long): OrderFormErrors {
+internal fun validateOrderForm(
+    form: NewOrderFormState,
+    isEditing: Boolean,
+    todayMillis: Long,
+    inventory: List<ArticuloInventario> = emptyList()
+): OrderFormErrors {
     val registered = form.clientType == "Cliente registrado"
     val sporadic = form.clientType == "Cliente esporádico"
     val toAddress = form.deliveryMode != "Recolección"
@@ -51,9 +60,8 @@ internal fun validateOrderForm(form: NewOrderFormState, isEditing: Boolean, toda
         },
         // El celular del cliente registrado viene de su ficha y no se edita aquí.
         phone = if (sporadic) phoneError(form.phone) else null,
-        products = ADD_PRODUCT_MESSAGE.takeIf {
-            form.quantities.values.none { (it.toDoubleOrNull() ?: 0.0) > 0.0 }
-        },
+        // Los productos se agregan al pedido y luego se ajusta su cantidad: basta con que haya alguno.
+        products = ADD_PRODUCT_MESSAGE.takeIf { form.quantities.isEmpty() },
         branch = SELECT_BRANCH_MESSAGE.takeIf { toAddress && registered && form.branchId == null },
         street = if (toAddress && sporadic) requiredError(form.street, Int.MAX_VALUE) else null,
         neighborhood = if (toAddress && sporadic) requiredError(form.neighborhood, Int.MAX_VALUE) else null,
@@ -68,6 +76,7 @@ internal fun validateOrderForm(form: NewOrderFormState, isEditing: Boolean, toda
             !isEditing && !isSelectableCreationDate(dateMillis, todayMillis) -> PAST_DATE_MESSAGE
             else -> null
         },
-        notes = "Máximo $MAX_ORDER_NOTES caracteres.".takeIf { form.notes.length > MAX_ORDER_NOTES }
+        notes = "Máximo $MAX_ORDER_NOTES caracteres.".takeIf { form.notes.length > MAX_ORDER_NOTES },
+        lines = zeroQuantityErrors(form.quantities) + stockErrors(form.quantities, inventory)
     )
 }
