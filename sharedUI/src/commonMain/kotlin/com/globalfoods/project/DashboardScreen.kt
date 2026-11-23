@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +59,7 @@ internal val DashboardHeaderHeight = 123.dp
 private val InventoryHeaderColor = Color(0xFFF8FAFC)
 private val InventoryHeaders = listOf("TALLA", "PRECIO", "MASTER", "STOCK")
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     refreshKey: Int = 0,
@@ -80,8 +82,11 @@ fun DashboardScreen(
     var orderItems by remember { mutableStateOf(cache.dashboardOrders.orEmpty()) }
     var orderError by remember { mutableStateOf<String?>(null) }
     var ordersReloadKey by remember { mutableStateOf(0) }
+    // Deslizar hacia abajo vuelve a consultar el inventario y los pedidos.
+    var pullKey by remember { mutableStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(refreshKey) {
+    LaunchedEffect(refreshKey, pullKey) {
         val resultado = dashboardRepository.obtenerInventario()
         isLoadingInventario = false
 
@@ -91,13 +96,14 @@ fun DashboardScreen(
         )
     }
 
-    LaunchedEffect(refreshKey, ordersReloadKey) {
+    LaunchedEffect(refreshKey, ordersReloadKey, pullKey) {
         orderError = null
         loadOrders(
             orderRepository,
             onOrders = { orderItems = it; cache.dashboardOrders = it },
             onError = { orderError = it }
         )
+        refreshing = false
     }
 
     Scaffold(
@@ -116,7 +122,9 @@ fun DashboardScreen(
                     NewOrderButton(onClick = onNewOrder)
                 }
             }
-            Box(
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = { refreshing = true; pullKey++ },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -482,7 +490,7 @@ internal fun DashboardNavigation(
         tabsFor(sessionRol).forEach { tab ->
             NavigationBarItem(
                 selected = tab == selected,
-                onClick = { if (tab != selected) onTabSelected(tab) },
+                onClick = { onTabSelected(tab) },
                 icon = { Icon(tab.icon, tab.label, modifier = Modifier.size(19.dp)) },
                 label = { Text(tab.label, fontSize = 8.sp) }
             )

@@ -28,6 +28,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -137,6 +139,7 @@ internal suspend fun deactivateBranchIfNoPendingOrders(repository: OrderReposito
         throw if (error is ApiConflictException) PendingOrdersException(branchInProcessMessage(branch.name)) else error
     }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClientsScreen(
     refreshKey: Int = 0,
@@ -193,7 +196,12 @@ fun ClientsScreen(
                     onSelected = { view = it }
                 )
             }
-            Box(Modifier.fillMaxWidth().weight(1f)) {
+            // Deslizar hacia abajo vuelve a consultar los clientes.
+            PullToRefreshBox(
+                isRefreshing = isLoading && clients.isNotEmpty(),
+                onRefresh = { reloadKey++ },
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier

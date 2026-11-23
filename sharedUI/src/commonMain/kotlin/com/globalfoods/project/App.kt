@@ -6,12 +6,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.globalfoods.project.sharedlogic.network.auth.AuthRepository
 import com.globalfoods.project.sharedlogic.network.auth.UserRole
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
+import kotlinx.coroutines.launch
 
 @Composable
 fun App() {
@@ -36,12 +38,25 @@ fun App() {
         val clientesListState = remember(sesion) { LazyListState() }
         val listas = remember(sesion) { ListsCache() }
 
+        val scope = rememberCoroutineScope()
         val abrirPestana: (MainTab) -> Unit = { tab ->
-            when (tab) {
-                MainTab.Inicio -> pantallaActual = "Dashboard"
-                MainTab.Pedidos -> pantallaActual = "Pedidos"
-                MainTab.Clientes -> pantallaActual = "Clientes"
-                MainTab.Sucursales -> pantallaActual = "Sucursales"
+            val destino = when (tab) {
+                MainTab.Inicio -> "Dashboard"
+                MainTab.Pedidos -> "Pedidos"
+                MainTab.Clientes -> "Clientes"
+                MainTab.Sucursales -> "Sucursales"
+            }
+            if (destino != pantallaActual) {
+                pantallaActual = destino
+            } else {
+                // Tocar la pestaña en la que ya estás regresa al inicio de su lista.
+                val lista = when (destino) {
+                    "Dashboard" -> inicioListState.takeIf { sessionRol != UserRole.Client }
+                    "Pedidos" -> pedidosListState
+                    "Clientes" -> clientesListState
+                    else -> null
+                }
+                lista?.let { scope.launch { it.animateScrollToItem(0) } }
             }
         }
         val cerrarSesion: () -> Unit = {

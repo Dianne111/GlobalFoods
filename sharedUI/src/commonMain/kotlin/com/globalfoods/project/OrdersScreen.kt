@@ -21,11 +21,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -42,7 +46,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -80,6 +86,7 @@ internal fun searchOrders(orders: List<Order>, query: String): List<Order> {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrdersScreen(
     refreshKey: Int = 0,
@@ -130,7 +137,12 @@ fun OrdersScreen(
                 SearchField(query = query, onQueryChange = { query = it })
                 ViewTabs(orders = searched, selected = view, onSelected = { view = it })
             }
-            Box(Modifier.fillMaxWidth().weight(1f)) {
+            // Deslizar hacia abajo vuelve a consultar los pedidos.
+            PullToRefreshBox(
+                isRefreshing = isLoading && orders.isNotEmpty(),
+                onRefresh = { reloadKey++ },
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -200,6 +212,7 @@ fun OrdersScreen(
 
 @Composable
 internal fun SearchField(query: String, onQueryChange: (String) -> Unit, placeholder: String = "Buscar pedido") {
+    val focusManager = LocalFocusManager.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -219,6 +232,9 @@ internal fun SearchField(query: String, onQueryChange: (String) -> Unit, placeho
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
+                // La tecla del teclado dice "Buscar" y lo cierra (la búsqueda ya se aplica al escribir).
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                 textStyle = TextStyle(color = Navy, fontSize = 14.sp),
                 cursorBrush = SolidColor(Navy),
                 modifier = Modifier.fillMaxWidth()
