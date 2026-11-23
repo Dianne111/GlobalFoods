@@ -468,7 +468,7 @@ fun NewOrderScreen(
                     val date = form.deliveryDate.split('/').let {
                         if (it.size == 3) "${it[2]}${it[1]}${it[0]}".toIntOrNull() else null
                     } ?: 0
-                    if (exceedsStock(form.quantities, products)) {
+                    if (!isClient && exceedsStock(form.quantities, products)) {
                         saveError = OUT_OF_STOCK_MESSAGE
                         return@SummaryStep
                     }
@@ -714,109 +714,92 @@ private fun DetailsStep(
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("DETALLES DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 22.dp))
-            if (isClient) {
+            if (!isClient) {
+                DropdownField(
+                    label = "Tipo de cliente",
+                    value = form.clientType,
+                    error = shown.clientType,
+                    options = listOf("Cliente registrado", "Cliente esporádico"),
+                    onSelected = {
+                        onClientSelected(null)
+                        onFormChange(
+                            form.copy(
+                                clientType = it,
+                                client = "",
+                                clientId = null,
+                                phone = "",
+                                branch = "",
+                                branchId = null,
+                                address = "",
+                                street = "",
+                                neighborhood = "",
+                                postalCode = ""
+                            )
+                        )
+                    }
+                )
+                if (form.clientType == "Cliente registrado") {
+                    DropdownField(
+                        label = "Cliente",
+                        value = form.client,
+                        error = shown.client,
+                        options = clients.map { it.name },
+                        onSelected = { name ->
+                            val client = clients.firstOrNull { it.name == name }
+                            onClientSelected(client)
+                            onFormChange(
+                                form.copy(
+                                    client = name,
+                                    clientId = client?.id,
+                                    phone = client?.phone.orEmpty(),
+                                    branch = "",
+                                    branchId = null,
+                                    address = ""
+                                )
+                            )
+                        }
+                    )
+                } else if (form.clientType == "Cliente esporádico") {
+                    FormField(
+                        "Nombre del cliente",
+                        form.client,
+                        { onFormChange(form.copy(client = it.take(MAX_SPORADIC_CLIENT_NAME))) },
+                        error = shown.client
+                    )
+                }
+                if (form.clientType.isNotBlank()) {
+                    FormField(
+                        label = if (form.clientType == "Cliente esporádico") "Celular (10 dígitos)" else "Celular",
+                        value = form.phone,
+                        onValueChange = { onFormChange(form.copy(phone = phoneInput(it))) },
+                        keyboardType = KeyboardType.Phone,
+                        readOnly = form.clientType == "Cliente registrado",
+                        error = shown.phone
+                    )
+                }
+            } else {
                 if (form.clientId == null) {
                     Notice("Tu usuario aún no está vinculado a un cliente. Comunícate con tu asesor de ventas.")
                 } else {
                     Text("Cliente", color = Gray, fontSize = 12.sp)
                     Text(form.client.ifBlank { "Mi cuenta" }, color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
-            } else {
-            DropdownField(
-                label = "Tipo de cliente",
-                value = form.clientType,
-                error = shown.clientType,
-                options = listOf("Cliente registrado", "Cliente esporádico"),
-                onSelected = {
-                    onClientSelected(null)
-                    onFormChange(
-                        form.copy(
-                            clientType = it,
-                            client = "",
-                            clientId = null,
-                            phone = "",
-                            branch = "",
-                            branchId = null,
-                            address = "",
-                            street = "",
-                            neighborhood = "",
-                            postalCode = ""
-                        )
-                    )
-                }
-            )
-            if (form.clientType == "Cliente registrado") {
-                DropdownField(
-                    label = "Cliente",
-                    value = form.client,
-                    error = shown.client,
-                    options = clients.map { it.name },
-                    onSelected = { name ->
-                        val client = clients.firstOrNull { it.name == name }
-                        onClientSelected(client)
-                        onFormChange(
-                            form.copy(
-                                client = name,
-                                clientId = client?.id,
-                                phone = client?.phone.orEmpty(),
-                                branch = "",
-                                branchId = null,
-                                address = ""
-                            )
-                        )
-                    }
-                )
-            } else if (form.clientType == "Cliente esporádico") {
-                FormField(
-                    "Nombre del cliente",
-                    form.client,
-                    { onFormChange(form.copy(client = it.take(MAX_SPORADIC_CLIENT_NAME))) },
-                    error = shown.client
-                )
-            }
-            if (form.clientType.isNotBlank()) {
-                FormField(
-                    label = if (form.clientType == "Cliente esporádico") "Celular (10 dígitos)" else "Celular",
-                    value = form.phone,
-                    onValueChange = { onFormChange(form.copy(phone = phoneInput(it))) },
-                    keyboardType = KeyboardType.Phone,
-                    readOnly = form.clientType == "Cliente registrado",
-                    error = shown.phone
-                )
-            }
             }
             Spacer(Modifier.height(10.dp))
-            if (isClient) {
-                Text("RESUMEN DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            } else {
-                // Igual que la web: se agregan productos y luego se ajusta su cantidad con − / +.
-                AdminProductsSection(
-                    quantities = form.quantities,
-                    inventory = inventory,
-                    loading = inventoryLoading,
-                    loadError = inventoryError,
-                    sectionError = shown.products,
-                    lineErrors = shownLines,
-                    onQuantitiesChange = { onFormChange(form.copy(quantities = it)) }
-                )
-            }
-        }
-        if (isClient) items(selectedProducts(form.quantities, inventory), key = { it.talla }) { product ->
-            MiniProductCard(
-                product = product,
-                quantity = form.quantities[product.talla] ?: "0",
-                onEdit = onCatalog,
-                onRemove = {
-                    onFormChange(form.copy(quantities = form.quantities - product.talla))
-                }
+
+            // ¡Aquí está la clave! Ahora tanto el cliente como el admin usan la misma sección de productos
+            AdminProductsSection(
+                quantities = form.quantities,
+                inventory = inventory,
+                loading = inventoryLoading,
+                loadError = inventoryError,
+                sectionError = shown.products,
+                // Si es cliente no validamos stock en tiempo real porque su catálogo no lo trae
+                lineErrors = if (isClient) emptyMap() else shownLines,
+                onQuantitiesChange = { onFormChange(form.copy(quantities = it)) }
             )
         }
         item {
-            if (isClient) {
-                Button(onClick = onCatalog, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1197C5)), modifier = Modifier.fillMaxWidth()) {
-                    Text("Agregar productos")
-                }
-            }
             Spacer(Modifier.height(14.dp))
             Text("MÉTODO DE ENTREGA", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Row(Modifier.fillMaxWidth()) {
