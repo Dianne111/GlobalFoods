@@ -92,7 +92,7 @@ internal data class NewOrderFormState(
     val clientId: Int? = null,
     val branchId: Int? = null,
     val client: String = "",
-    val clientType: String = "",
+    val clientType: String = "Cliente registrado",
     val phone: String = "",
     val branch: String = "",
     val address: String = "",
@@ -130,13 +130,35 @@ internal fun initialNewOrderForm(
     userName: String?,
     template: OrderResponse?
 ): NewOrderFormState {
-    val base = template?.let(::formFromOrder)?.copy(deliveryDate = NewOrderFormState().deliveryDate)
-        ?: NewOrderFormState()
+    val base = registeredOrderForm(template?.let(::formFromOrder)?.copy(deliveryDate = NewOrderFormState().deliveryDate)
+        ?: NewOrderFormState())
     if (!isClient) return base
     return base.copy(
         clientType = "Cliente registrado",
         clientId = clientId,
         client = base.client.ifBlank { userName.orEmpty() }
+    )
+}
+
+/** Los pedidos nuevos o editados siempre se vinculan a un cliente del catálogo. */
+internal fun registeredOrderForm(form: NewOrderFormState): NewOrderFormState {
+    if ((form.clientId ?: 0) > 0) return form.copy(clientType = "Cliente registrado")
+    val pickup = form.deliveryMode == "Recolección"
+    return form.copy(
+        clientType = "Cliente registrado", clientId = null, client = "", phone = "", branchId = null,
+        branch = if (pickup) PickupLocation.description else "",
+        address = if (pickup) PickupLocation.description else "",
+        street = "", neighborhood = "", postalCode = ""
+    )
+}
+
+internal fun selectRegisteredClient(form: NewOrderFormState, client: Client): NewOrderFormState {
+    val pickup = form.deliveryMode == "Recolección"
+    return form.copy(
+        clientType = "Cliente registrado", clientId = client.id, client = client.name, phone = client.phone,
+        branchId = null, branch = if (pickup) PickupLocation.description else "",
+        address = if (pickup) PickupLocation.description else "",
+        street = "", neighborhood = "", postalCode = ""
     )
 }
 
@@ -234,7 +256,7 @@ fun NewOrderScreen(
     // El cliente pide para sí mismo: no elige cliente ni ve existencias.
     val isClient = sessionRol == UserRole.Client
     val initialForm = remember(orderToEdit, template) {
-        orderToEdit?.let(::formFromOrder)
+        orderToEdit?.let { registeredOrderForm(formFromOrder(it)) }
             ?: initialNewOrderForm(isClient, sessionIdCliente, sessionNombreUsuario, template)
     }
     val repository = remember { DashboardRepository() }
@@ -272,7 +294,7 @@ fun NewOrderScreen(
             onSuccess = { loaded ->
                 clients = loaded
                 val current = form
-                if (current.clientType == "Cliente registrado" && current.clientId != null) {
+                if (current.clientId != null) {
                     loaded.firstOrNull { it.id == current.clientId }?.let { client ->
                         form = current.copy(
                             client = current.client.ifBlank { client.name },
@@ -329,7 +351,7 @@ fun NewOrderScreen(
     }
 
     LaunchedEffect(orderToEdit) {
-        if (initialForm.clientType == "Cliente registrado" && initialForm.clientId != null) {
+        if (initialForm.clientId != null) {
             loadBranches(initialForm.clientId)
         }
     }
@@ -453,6 +475,10 @@ fun NewOrderScreen(
                 onProducts = { step = if (isClient) NewOrderStep.Catalog else NewOrderStep.Details },
                 submitLabel = if (isEditing) "Guardar cambios" else "Registrar pedido pendiente",
                 onSubmit = {
+                    if ((form.clientId ?: 0) <= 0) {
+                        saveError = SELECT_CLIENT_MESSAGE
+                        return@SummaryStep
+                    }
                     val products = selectedProducts(form.quantities, inventory)
                     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
                     val total = orderProductsTotal(form.quantities, inventory)
@@ -480,7 +506,7 @@ fun NewOrderScreen(
                     val isPickup = form.deliveryMode == "Recolección"
                     val delivery = OrderDeliveryInfo(
                         clientName = form.client.trim(),
-                        clientType = form.clientType,
+                        clientType = "Cliente registrado",
                         method = form.deliveryMode,
                         address = if (isPickup) "" else form.address,
                         phone = form.phone.trim(),
@@ -488,7 +514,7 @@ fun NewOrderScreen(
                         references = form.references
                     )
                     val request = OrderRequest(
-                        clientId = form.clientId.takeIf { form.clientType == "Cliente registrado" },
+                        clientId = form.clientId,
                         branchId = form.branchId.takeUnless { isPickup },
                         date = date,
                         paymentMethod = orderToEdit?.paymentMethod ?: 0,
@@ -496,10 +522,7 @@ fun NewOrderScreen(
                         totalKg = totalKg,
                         total = total,
                         status = orderToEdit?.status ?: 1,
-                        notes = OrderObservations(form.notes, delivery).let { observations ->
-                            if (form.clientType == "Cliente registrado") observations.encodeForWeb(date)
-                            else observations.encode()
-                        },
+                        notes = OrderObservations(form.notes, delivery).encodeForWeb(date),
                         lines = products.map {
                             val quantity = form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0
                             OrderLineRequest(it.codigoProducto, it.talla, quantity, it.precio, quantity * it.precio)
@@ -722,68 +745,24 @@ private fun DetailsStep(
                     Text(form.client.ifBlank { "Mi cuenta" }, color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             } else {
-            DropdownField(
-                label = "Tipo de cliente",
-                value = form.clientType,
-                error = shown.clientType,
-                options = listOf("Cliente registrado", "Cliente esporádico"),
-                onSelected = {
-                    onClientSelected(null)
-                    onFormChange(
-                        form.copy(
-                            clientType = it,
-                            client = "",
-                            clientId = null,
-                            phone = "",
-                            branch = "",
-                            branchId = null,
-                            address = "",
-                            street = "",
-                            neighborhood = "",
-                            postalCode = ""
-                        )
-                    )
-                }
-            )
-            if (form.clientType == "Cliente registrado") {
                 DropdownField(
                     label = "Cliente",
                     value = form.client,
                     error = shown.client,
-                    options = clients.map { it.name },
-                    onSelected = { name ->
-                        val client = clients.firstOrNull { it.name == name }
+                    options = clients,
+                    optionLabel = { it.name },
+                    onSelected = { client ->
+                        onFormChange(selectRegisteredClient(form, client))
                         onClientSelected(client)
-                        onFormChange(
-                            form.copy(
-                                client = name,
-                                clientId = client?.id,
-                                phone = client?.phone.orEmpty(),
-                                branch = "",
-                                branchId = null,
-                                address = ""
-                            )
-                        )
                     }
                 )
-            } else if (form.clientType == "Cliente esporádico") {
                 FormField(
-                    "Nombre del cliente",
-                    form.client,
-                    { onFormChange(form.copy(client = it.take(MAX_SPORADIC_CLIENT_NAME))) },
-                    error = shown.client
-                )
-            }
-            if (form.clientType.isNotBlank()) {
-                FormField(
-                    label = if (form.clientType == "Cliente esporádico") "Celular (10 dígitos)" else "Celular",
+                    label = "Celular",
                     value = form.phone,
-                    onValueChange = { onFormChange(form.copy(phone = phoneInput(it))) },
+                    onValueChange = {},
                     keyboardType = KeyboardType.Phone,
-                    readOnly = form.clientType == "Cliente registrado",
-                    error = shown.phone
+                    readOnly = true
                 )
-            }
             }
             Spacer(Modifier.height(10.dp))
             if (isClient) {
@@ -843,7 +822,7 @@ private fun DetailsStep(
             }
             if (form.deliveryMode == "Recolección") {
                 AddressCard(PickupLocation.description, title = "Punto de recolección", mapsUrl = PickupLocation.mapsUrl)
-            } else if (form.clientType == "Cliente registrado") {
+            } else {
                 BranchField(
                     value = form.branch,
                     error = shown.branch,
@@ -873,68 +852,6 @@ private fun DetailsStep(
                 } else {
                     AddressCard(form.address)
                 }
-            } else {
-                Text(
-                    "Dirección de entrega",
-                    color = Navy,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                FormField(
-                    "Calle",
-                    form.street,
-                    {
-                        onFormChange(
-                            form.copy(
-                                street = it,
-                                address = buildAddress(it, form.neighborhood, form.postalCode)
-                            )
-                        )
-                    },
-                    error = shown.street
-                )
-                FormField(
-                    "Colonia",
-                    form.neighborhood,
-                    {
-                        onFormChange(
-                            form.copy(
-                                neighborhood = it,
-                                address = buildAddress(form.street, it, form.postalCode)
-                            )
-                        )
-                    },
-                    error = shown.neighborhood
-                )
-                FormField(
-                    "Código postal",
-                    form.postalCode,
-                    {
-                        val postalCode = it.filter(Char::isDigit).take(5)
-                        onFormChange(
-                            form.copy(
-                                postalCode = postalCode,
-                                address = buildAddress(form.street, form.neighborhood, postalCode)
-                            )
-                        )
-                    },
-                    KeyboardType.Number,
-                    error = shown.postalCode
-                )
-                if (!submitted && (form.street.isBlank() || form.neighborhood.isBlank() || form.postalCode.isBlank())) {
-                    Text(
-                        "Captura calle, colonia y código postal para definir la ubicación de entrega.",
-                        color = Color(0xFFB45309),
-                        fontSize = 12.sp
-                    )
-                }
-            }
-            if (form.clientType.isBlank() && !submitted) {
-                Text(
-                    "Selecciona el tipo de cliente para definir la ubicación de entrega.",
-                    color = Color(0xFFB45309),
-                    fontSize = 12.sp
-                )
             }
             DateField(form.deliveryDate, onClick = onDatePicker)
             shown.date?.let { FieldError(it) }
@@ -947,13 +864,8 @@ private fun DetailsStep(
                 hint = if (isClient) null else "${form.notes.length}/$MAX_ORDER_NOTES"
             )
             val hasProducts = form.quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true }
-            val hasClient = if (form.clientType == "Cliente registrado") form.clientId != null else form.client.isNotBlank()
-            val hasLocation = form.deliveryMode == "Recolección" ||
-                (form.clientType == "Cliente registrado" && form.branchId != null) ||
-                (form.clientType == "Cliente esporádico" &&
-                    form.street.isNotBlank() &&
-                    form.neighborhood.isNotBlank() &&
-                    form.postalCode.length == 5)
+            val hasClient = (form.clientId ?: 0) > 0
+            val hasLocation = form.deliveryMode == "Recolección" || (form.branchId ?: 0) > 0
             Button(
                 onClick = {
                     if (isClient) {
@@ -991,7 +903,7 @@ private fun SummaryStep(
     LazyColumn(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("CLIENTE", color = Gray, fontSize = 12.sp)
-            Text(form.client.ifBlank { "Cliente esporádico" }, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(form.client.ifBlank { "Selecciona un cliente" }, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text("UBICACIÓN DE ENTREGA", color = Gray, fontSize = 12.sp)
             Text(
@@ -1099,12 +1011,13 @@ private fun MiniProductCard(
 }
 
 @Composable
-private fun DropdownField(
+private fun <T> DropdownField(
     label: String,
     value: String,
-    options: List<String>,
-    onSelected: (String) -> Unit,
-    error: String? = null
+    options: List<T>,
+    onSelected: (T) -> Unit,
+    error: String? = null,
+    optionLabel: (T) -> String = { it.toString() }
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -1131,7 +1044,7 @@ private fun DropdownField(
         ) {
             options.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option) },
+                    text = { Text(optionLabel(option)) },
                     onClick = {
                         onSelected(option)
                         expanded = false

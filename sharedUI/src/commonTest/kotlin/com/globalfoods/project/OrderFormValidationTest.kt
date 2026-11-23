@@ -21,7 +21,7 @@ class OrderFormValidationTest {
     @Test
     fun anEmptyFormReportsTheMissingData() {
         val errors = validateOrderForm(NewOrderFormState(deliveryDate = ""), isEditing = false, todayMillis = today)
-        assertEquals(SELECT_CLIENT_TYPE_MESSAGE, errors.clientType)
+        assertEquals(SELECT_CLIENT_MESSAGE, errors.client)
         assertEquals(ADD_PRODUCT_MESSAGE, errors.products)
         assertEquals(SELECT_DATE_MESSAGE, errors.date)
     }
@@ -39,11 +39,11 @@ class OrderFormValidationTest {
     }
 
     @Test
-    fun aSporadicClientNeedsNamePhoneAndAddress() {
+    fun aTypedContactDoesNotReplaceSelectingARegisteredClient() {
         val form = NewOrderFormState(
             quantities = mapOf("U10" to "1"),
             clientType = "Cliente esporádico",
-            client = "",
+            client = "Ana",
             phone = "66712",
             street = "",
             neighborhood = "Centro",
@@ -51,14 +51,18 @@ class OrderFormValidationTest {
             deliveryDate = "22/11/2026"
         )
         val errors = validateOrderForm(form, isEditing = false, todayMillis = today)
-        assertEquals(REQUIRED_MESSAGE, errors.client)
-        assertEquals(PHONE_MESSAGE, errors.phone)
-        assertEquals(REQUIRED_MESSAGE, errors.street)
-        assertNull(errors.neighborhood)
-        assertEquals(POSTAL_CODE_MESSAGE, errors.postalCode)
+        assertEquals(SELECT_CLIENT_MESSAGE, errors.client)
+        assertEquals(SELECT_BRANCH_MESSAGE, errors.branch)
 
-        val fixed = form.copy(client = "Ana", phone = "6671234567", street = "Juárez 10", postalCode = "80000")
+        val fixed = form.copy(clientType = "Cliente registrado", clientId = 7, branchId = 3)
         assertTrue(validateOrderForm(fixed, isEditing = false, todayMillis = today).isValid)
+    }
+
+    @Test
+    fun aZeroClientIdCannotBeSubmittedEvenForPickup() {
+        val errors = validateOrderForm(validRegistered.copy(clientId = 0, deliveryMode = "Recolección"), false, today)
+        assertEquals(SELECT_CLIENT_MESSAGE, errors.client)
+        assertNull(errors.branch)
     }
 
     @Test
