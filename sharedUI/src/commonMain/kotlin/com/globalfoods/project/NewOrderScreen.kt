@@ -163,7 +163,7 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
         clientType = clientType,
         phone = delivery?.phone?.takeIf { it.isNotBlank() } ?: order.client?.phone?.takeIf { it.isNotBlank() }
             ?: linkedBranch?.phone.orEmpty(),
-        branch = if (isPickup) "Congeladora Global Foods" else delivery?.branchName?.takeIf { it.isNotBlank() }
+        branch = if (isPickup) PickupLocation.description else delivery?.branchName?.takeIf { it.isNotBlank() }
             ?: linkedBranch?.name.orEmpty(),
         address = address,
         street = street,
@@ -827,7 +827,7 @@ private fun DetailsStep(
                                 form.copy(
                                     deliveryMode = mode,
                                     branchId = null,
-                                    branch = if (mode == "Recolección") "Congeladora Global Foods" else "",
+                                    branch = if (mode == "Recolección") PickupLocation.description else "",
                                     address = if (mode == "Recolección") PickupLocation.description else "",
                                     street = if (mode == "Recolección") "" else form.street,
                                     neighborhood = if (mode == "Recolección") "" else form.neighborhood,
