@@ -494,7 +494,7 @@ fun NewOrderScreen(
                     val date = form.deliveryDate.split('/').let {
                         if (it.size == 3) "${it[2]}${it[1]}${it[0]}".toIntOrNull() else null
                     } ?: 0
-                    if (exceedsStock(form.quantities, products)) {
+                    if (!isClient && exceedsStock(form.quantities, products)) {
                         saveError = OUT_OF_STOCK_MESSAGE
                         return@SummaryStep
                     }
@@ -765,37 +765,20 @@ private fun DetailsStep(
                 )
             }
             Spacer(Modifier.height(10.dp))
-            if (isClient) {
-                Text("RESUMEN DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            } else {
-                // Igual que la web: se agregan productos y luego se ajusta su cantidad con − / +.
-                AdminProductsSection(
-                    quantities = form.quantities,
-                    inventory = inventory,
-                    loading = inventoryLoading,
-                    loadError = inventoryError,
-                    sectionError = shown.products,
-                    lineErrors = shownLines,
-                    onQuantitiesChange = { onFormChange(form.copy(quantities = it)) }
-                )
-            }
-        }
-        if (isClient) items(selectedProducts(form.quantities, inventory), key = { it.talla }) { product ->
-            MiniProductCard(
-                product = product,
-                quantity = form.quantities[product.talla] ?: "0",
-                onEdit = onCatalog,
-                onRemove = {
-                    onFormChange(form.copy(quantities = form.quantities - product.talla))
-                }
+
+            // ¡Aquí está la clave! Ahora tanto el cliente como el admin usan la misma sección de productos
+            AdminProductsSection(
+                quantities = form.quantities,
+                inventory = inventory,
+                loading = inventoryLoading,
+                loadError = inventoryError,
+                sectionError = shown.products,
+                // Si es cliente no validamos stock en tiempo real porque su catálogo no lo trae
+                lineErrors = if (isClient) emptyMap() else shownLines,
+                onQuantitiesChange = { onFormChange(form.copy(quantities = it)) }
             )
         }
         item {
-            if (isClient) {
-                Button(onClick = onCatalog, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1197C5)), modifier = Modifier.fillMaxWidth()) {
-                    Text("Agregar productos")
-                }
-            }
             Spacer(Modifier.height(14.dp))
             Text("MÉTODO DE ENTREGA", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Row(Modifier.fillMaxWidth()) {

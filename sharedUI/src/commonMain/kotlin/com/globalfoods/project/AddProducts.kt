@@ -52,13 +52,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.globalfoods.project.sharedlogic.network.auth.UserRole
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import kotlin.math.roundToLong
 
 /*
- * Productos del pedido en la vista del vendedor/administrador, igual que en la app web: se agregan
- * desde un panel con búsqueda y luego se ajusta la cantidad con − / +. Muestra los kg disponibles
- * (CU-04, RF-PRO-01). La vista del cliente sigue usando el catálogo.
+- Productos del pedido en la vista del vendedor/administrador, igual que en la app web: se agregan
+- desde un panel con búsqueda y luego se ajusta la cantidad con − / +. Muestra los kg disponibles
+- (CU-04, RF-PRO-01). La vista del cliente sigue usando el catálogo.
  */
 
 internal const val QUANTITY_MESSAGE = "La cantidad debe ser mayor que cero."
@@ -83,8 +85,11 @@ internal fun searchInventory(inventory: List<ArticuloInventario>, query: String)
 }
 
 /** Cantidad inicial al agregar: 1 kg, o lo disponible si hay menos. */
-internal fun initialQuantity(product: ArticuloInventario): String =
-    formatOrderKg(minOf(1.0, product.cantidadKg).takeIf { it > 0 } ?: 1.0)
+internal fun initialQuantity(product: ArticuloInventario): String {
+    val isClient = sessionRol == UserRole.Client
+    val maxLimit = if (isClient) Double.MAX_VALUE else product.cantidadKg
+    return formatOrderKg(minOf(1.0, maxLimit).takeIf { it > 0 } ?: 1.0)
+}
 
 /** Suma [delta] kg a la cantidad, sin bajar de 1 ni pasar de [maximum]. */
 internal fun stepQuantity(current: String, delta: Double, maximum: Double): String {
@@ -201,6 +206,8 @@ private fun ProductQuantityCard(
     onQuantityChange: (String) -> Unit,
     onRemove: () -> Unit
 ) {
+    val isClient = sessionRol == UserRole.Client
+    val maxLimit = if (isClient) Double.MAX_VALUE else product.cantidadKg
     val value = quantity.replace(',', '.').toDoubleOrNull() ?: 0.0
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -213,7 +220,8 @@ private fun ProductQuantityCard(
                 Column(Modifier.weight(1f)) {
                     Text(product.talla, color = Navy, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text(
-                        "${formatMoney(product.precio)} por kg · ${formatOrderKg(product.cantidadKg)} kg disponibles",
+                        if (isClient) "${formatMoney(product.precio)} por kg"
+                        else "${formatMoney(product.precio)} por kg · ${formatOrderKg(product.cantidadKg)} kg disponibles",
                         color = Gray,
                         fontSize = 12.sp
                     )
@@ -225,11 +233,11 @@ private fun ProductQuantityCard(
             Spacer(Modifier.size(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
                 StepButton(Icons.Outlined.Remove, "Quitar 1 kg", enabled = value > 1.0) {
-                    onQuantityChange(stepQuantity(quantity, -1.0, product.cantidadKg))
+                    onQuantityChange(stepQuantity(quantity, -1.0, maxLimit))
                 }
                 BasicTextField(
                     value = quantity,
-                    onValueChange = { onQuantityChange(normalizeQuantity(it, Double.MAX_VALUE)) },
+                    onValueChange = { onQuantityChange(normalizeQuantity(it, maxLimit)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     textStyle = TextStyle(color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
@@ -239,8 +247,8 @@ private fun ProductQuantityCard(
                         .background(Background, RoundedCornerShape(8.dp))
                         .padding(vertical = 8.dp)
                 )
-                StepButton(Icons.Outlined.Add, "Agregar 1 kg", enabled = value < product.cantidadKg) {
-                    onQuantityChange(stepQuantity(quantity, 1.0, product.cantidadKg))
+                StepButton(Icons.Outlined.Add, "Agregar 1 kg", enabled = value < maxLimit) {
+                    onQuantityChange(stepQuantity(quantity, 1.0, maxLimit))
                 }
                 Text(" kg", color = Gray, fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
@@ -318,19 +326,23 @@ private fun AddProductSheet(
 
 @Composable
 private fun AddProductRow(product: ArticuloInventario, alreadyAdded: Boolean, onAdd: () -> Unit) {
-    val available = product.cantidadKg > 0
+    val isClient = sessionRol == UserRole.Client
+    val available = if (isClient) true else product.cantidadKg > 0
     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(product.talla, color = Navy, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text("Venta por kg", color = Gray, fontSize = 12.sp)
             Text(
-                "${formatMoney(product.precio)} por kg · ${formatOrderKg(product.cantidadKg)} kg disponibles",
+                if (isClient) "${formatMoney(product.precio)} por kg"
+                else "${formatMoney(product.precio)} por kg · ${formatOrderKg(product.cantidadKg)} kg disponibles",
                 color = Gray,
                 fontSize = 12.sp
             )
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            AvailabilityBadge(available)
+            if (!isClient) {
+                AvailabilityBadge(available)
+            }
             Button(
                 onClick = onAdd,
                 enabled = available && !alreadyAdded,

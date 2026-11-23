@@ -19,6 +19,9 @@ import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.auth.UserRole
+import com.globalfoods.project.sharedlogic.network.core.sessionToken
+import io.ktor.client.request.header
+import io.ktor.http.HttpHeaders
 
 class OrderRepository internal constructor(private val client: HttpClient) {
     constructor() : this(globalFoodsClient)
@@ -88,7 +91,11 @@ class OrderRepository internal constructor(private val client: HttpClient) {
     }
 
     suspend fun getOrders(): Result<List<OrderResponse>> = request {
-        val response = client.get("$baseUrl/pedidos")
+        // Determinamos si el usuario es cliente para usar su ruta exclusiva o la general
+        val esCliente = sessionRol == UserRole.Client
+        val endpoint = if (esCliente) "$baseUrl/pedidos/mios" else "$baseUrl/pedidos"
+
+        val response = client.get(endpoint)
         ensureSuccess(response, "los pedidos")
         response.body()
     }
