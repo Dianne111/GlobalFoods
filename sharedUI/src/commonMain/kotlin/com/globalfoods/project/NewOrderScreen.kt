@@ -430,6 +430,7 @@ fun NewOrderScreen(
             NewOrderStep.Details -> DetailsStep(
                 form = form,
                 isClient = isClient,
+                isEditing = isEditing,
                 clients = clients,
                 selectedClientBranches = selectedClientBranches,
                 loadingBranches = loadingBranches,
@@ -686,6 +687,7 @@ private fun CatalogProductCard(
 private fun DetailsStep(
     form: NewOrderFormState,
     isClient: Boolean,
+    isEditing: Boolean,
     clients: List<Client>,
     selectedClientBranches: List<Branch>,
     loadingBranches: Boolean,
@@ -698,6 +700,11 @@ private fun DetailsStep(
     inventory: List<ArticuloInventario>,
     modifier: Modifier
 ) {
+    // Vendedor/administrador: los errores se marcan en rojo bajo cada campo después del primer
+    // intento de continuar (RF-PED-01). La vista del cliente conserva su comportamiento.
+    var submitted by remember { mutableStateOf(false) }
+    val errors = if (isClient) OrderFormErrors() else validateOrderForm(form, isEditing, currentDateMillis())
+    val shown = if (submitted) errors else OrderFormErrors()
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("DETALLES DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 22.dp))
@@ -712,6 +719,7 @@ private fun DetailsStep(
             DropdownField(
                 label = "Tipo de cliente",
                 value = form.clientType,
+                error = shown.clientType,
                 options = listOf("Cliente registrado", "Cliente esporádico"),
                 onSelected = {
                     onClientSelected(null)
@@ -735,6 +743,7 @@ private fun DetailsStep(
                 DropdownField(
                     label = "Cliente",
                     value = form.client,
+                    error = shown.client,
                     options = clients.map { it.name },
                     onSelected = { name ->
                         val client = clients.firstOrNull { it.name == name }
@@ -752,15 +761,21 @@ private fun DetailsStep(
                     }
                 )
             } else if (form.clientType == "Cliente esporádico") {
-                FormField("Nombre del cliente", form.client, { onFormChange(form.copy(client = it)) })
+                FormField(
+                    "Nombre del cliente",
+                    form.client,
+                    { onFormChange(form.copy(client = it.take(MAX_SPORADIC_CLIENT_NAME))) },
+                    error = shown.client
+                )
             }
             if (form.clientType.isNotBlank()) {
                 FormField(
-                    label = "Celular",
+                    label = if (form.clientType == "Cliente esporádico") "Celular (10 dígitos)" else "Celular",
                     value = form.phone,
-                    onValueChange = { onFormChange(form.copy(phone = it)) },
+                    onValueChange = { onFormChange(form.copy(phone = phoneInput(it))) },
                     keyboardType = KeyboardType.Phone,
-                    readOnly = form.clientType == "Cliente registrado"
+                    readOnly = form.clientType == "Cliente registrado",
+                    error = shown.phone
                 )
             }
             }
@@ -781,6 +796,7 @@ private fun DetailsStep(
             Button(onClick = onCatalog, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1197C5)), modifier = Modifier.fillMaxWidth()) {
                 Text("Agregar productos")
             }
+            shown.products?.let { FieldError(it) }
             Spacer(Modifier.height(14.dp))
             Text("MÉTODO DE ENTREGA", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Row(Modifier.fillMaxWidth()) {
@@ -810,6 +826,7 @@ private fun DetailsStep(
             } else if (form.clientType == "Cliente registrado") {
                 BranchField(
                     value = form.branch,
+                    error = shown.branch,
                     options = selectedClientBranches.map { it.name },
                     onSelected = { branchName ->
                         val branch = selectedClientBranches.firstOrNull { it.name == branchName }
@@ -827,7 +844,7 @@ private fun DetailsStep(
                         color = Color(0xFFB91C1C),
                         fontSize = 12.sp
                     )
-                } else if (form.branch.isBlank()) {
+                } else if (form.branch.isBlank() && shown.branch == null) {
                     Text(
                         "Selecciona una sucursal de tu perfil para continuar.",
                         color = Color(0xFFB45309),
@@ -853,7 +870,8 @@ private fun DetailsStep(
                                 address = buildAddress(it, form.neighborhood, form.postalCode)
                             )
                         )
-                    }
+                    },
+                    error = shown.street
                 )
                 FormField(
                     "Colonia",
@@ -865,7 +883,8 @@ private fun DetailsStep(
                                 address = buildAddress(form.street, it, form.postalCode)
                             )
                         )
-                    }
+                    },
+                    error = shown.neighborhood
                 )
                 FormField(
                     "Código postal",
@@ -879,9 +898,10 @@ private fun DetailsStep(
                             )
                         )
                     },
-                    KeyboardType.Number
+                    KeyboardType.Number,
+                    error = shown.postalCode
                 )
-                if (form.street.isBlank() || form.neighborhood.isBlank() || form.postalCode.isBlank()) {
+                if (!submitted && (form.street.isBlank() || form.neighborhood.isBlank() || form.postalCode.isBlank())) {
                     Text(
                         "Captura calle, colonia y código postal para definir la ubicación de entrega.",
                         color = Color(0xFFB45309),
@@ -889,7 +909,7 @@ private fun DetailsStep(
                     )
                 }
             }
-            if (form.clientType.isBlank()) {
+            if (form.clientType.isBlank() && !submitted) {
                 Text(
                     "Selecciona el tipo de cliente para definir la ubicación de entrega.",
                     color = Color(0xFFB45309),
@@ -897,7 +917,15 @@ private fun DetailsStep(
                 )
             }
             DateField(form.deliveryDate, onClick = onDatePicker)
-            FormField("Observaciones", form.notes, { onFormChange(form.copy(notes = it)) }, singleLine = false)
+            shown.date?.let { FieldError(it) }
+            FormField(
+                "Observaciones",
+                form.notes,
+                { onFormChange(form.copy(notes = if (isClient) it else it.take(MAX_ORDER_NOTES))) },
+                singleLine = false,
+                error = shown.notes,
+                hint = if (isClient) null else "${form.notes.length}/$MAX_ORDER_NOTES"
+            )
             val hasProducts = form.quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true }
             val hasClient = if (form.clientType == "Cliente registrado") form.clientId != null else form.client.isNotBlank()
             val hasLocation = form.deliveryMode == "Recolección" ||
@@ -907,8 +935,16 @@ private fun DetailsStep(
                     form.neighborhood.isNotBlank() &&
                     form.postalCode.length == 5)
             Button(
-                onClick = onContinue,
-                enabled = hasClient && hasProducts && hasLocation,
+                onClick = {
+                    if (isClient) {
+                        onContinue()
+                    } else {
+                        submitted = true
+                        if (errors.isValid) onContinue()
+                    }
+                },
+                // Al cliente se le deshabilita como antes; al vendedor/administrador se le explica qué falta.
+                enabled = !isClient || (hasClient && hasProducts && hasLocation),
                 colors = ButtonDefaults.buttonColors(containerColor = Navy),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp).height(52.dp)
             ) {
@@ -1047,7 +1083,8 @@ private fun DropdownField(
     label: String,
     value: String,
     options: List<String>,
-    onSelected: (String) -> Unit
+    onSelected: (String) -> Unit,
+    error: String? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -1057,6 +1094,8 @@ private fun DropdownField(
             readOnly = true,
             label = { Text(label) },
             placeholder = { Text("Seleccionar") },
+            isError = error != null,
+            supportingText = error?.let { { Text(it) } },
             modifier = Modifier.fillMaxWidth(),
             colors = outlinedFieldColors()
         )
@@ -1084,12 +1123,13 @@ private fun DropdownField(
 }
 
 @Composable
-private fun BranchField(value: String, options: List<String>, onSelected: (String) -> Unit) {
+private fun BranchField(value: String, options: List<String>, onSelected: (String) -> Unit, error: String? = null) {
     DropdownField(
         label = "Sucursal",
         value = value,
         options = options,
-        onSelected = onSelected
+        onSelected = onSelected,
+        error = error
     )
 }
 
@@ -1302,18 +1342,31 @@ private fun FormField(
     onValueChange: (String) -> Unit,
     keyboardType: KeyboardType = KeyboardType.Text,
     singleLine: Boolean = true,
-    readOnly: Boolean = false
+    readOnly: Boolean = false,
+    /** Mensaje en rojo debajo del campo (borde y etiqueta en rojo). */
+    error: String? = null,
+    /** Ayuda en gris debajo del campo cuando no hay error. */
+    hint: String? = null
 ) {
+    val supporting = error ?: hint
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
+        isError = error != null,
+        supportingText = supporting?.let { { Text(it) } },
         modifier = Modifier.fillMaxWidth(),
         singleLine = singleLine,
         readOnly = readOnly,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         colors = outlinedFieldColors()
     )
+}
+
+/** Mensaje en rojo debajo de un control que no es campo de texto (productos, fecha). */
+@Composable
+private fun FieldError(message: String) {
+    Text(message, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, top = 2.dp))
 }
 
 @Composable
