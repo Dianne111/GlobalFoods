@@ -3,6 +3,7 @@ package com.globalfoods.project.sharedlogic.network.clients
 import com.globalfoods.project.sharedlogic.network.core.ApiConflictException
 import com.globalfoods.project.sharedlogic.network.core.ensureSuccessWithApiMessage
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
+import com.globalfoods.project.sharedlogic.network.core.networkErrorMessage
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -110,6 +111,6 @@ class ClientRepository {
         } catch (e: ApiConflictException) {
             Result.failure(e)
         } catch (e: Throwable) {
-            Result.failure(Exception(e.message ?: "Error de comunicación con el servidor", e))
+            Result.failure(Exception(networkErrorMessage(e) ?: e.message ?: "Error de comunicación con el servidor", e))
         }
 }
