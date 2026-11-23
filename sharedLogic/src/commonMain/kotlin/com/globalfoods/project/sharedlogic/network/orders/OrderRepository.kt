@@ -1,6 +1,8 @@
 package com.globalfoods.project.sharedlogic.network.orders
 
+import com.globalfoods.project.sharedlogic.network.core.ApiConflictException
 import com.globalfoods.project.sharedlogic.network.core.ensureSuccess
+import com.globalfoods.project.sharedlogic.network.core.ensureSuccessWithApiMessage
 import com.globalfoods.project.sharedlogic.network.core.ensureWriteSuccess
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
 import io.ktor.client.call.body
@@ -14,6 +16,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
+import com.globalfoods.project.sharedlogic.network.auth.UserRole
 
 class OrderRepository internal constructor(private val client: HttpClient) {
     constructor() : this(globalFoodsClient)
@@ -27,11 +31,14 @@ class OrderRepository internal constructor(private val client: HttpClient) {
 
     suspend fun getBranches(clientId: Int): Result<List<Branch>> = request {
         val response = client.get("$baseUrl/sucursales-clientes") {
-            header("X-Id-Cliente", clientId.toString())
+            if (sessionRol != UserRole.Client && clientId > 0) {
+                header("X-Id-Cliente", clientId.toString())
+            }
         }
         ensureSuccess(response, "las sucursales")
         response.body()
     }
+
     suspend fun createBranch(branch: BranchRequest): Result<Unit> = request {
         validate(branch)
         val response = client.post("$baseUrl/sucursales-clientes") {
@@ -54,6 +61,7 @@ class OrderRepository internal constructor(private val client: HttpClient) {
      * Baja lógica: la sucursal se conserva con Estatus 0 (o vuelve a 1 al reactivarla).
      * No se usa DELETE para no perder la referencia de los pedidos que ya se entregaron ahí.
      * No revalida nombre ni dirección para poder dar de baja sucursales antiguas incompletas.
+     * Si tiene pedidos pendientes, la API responde 409 y falla con [ApiConflictException].
      */
     suspend fun setBranchActive(branch: Branch, active: Boolean): Result<Unit> = request {
         require(branch.clientId > 0) { "La sucursal no tiene un cliente válido." }
@@ -68,10 +76,8 @@ class OrderRepository internal constructor(private val client: HttpClient) {
             contentType(ContentType.Application.Json)
             setBody(body)
         }
-        if (!response.status.isSuccess()) {
-            val action = if (active) "reactivar" else "dar de baja"
-            error("No se pudo $action la sucursal (HTTP ${response.status.value})")
-        }
+        val action = if (active) "reactivar" else "dar de baja"
+        ensureSuccessWithApiMessage(response, "No se pudo $action la sucursal")
     }
 
     private fun validate(branch: BranchRequest) {
@@ -184,6 +190,8 @@ class OrderRepository internal constructor(private val client: HttpClient) {
             Result.success(block())
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ApiConflictException) {
+            Result.failure(e)
         } catch (e: Throwable) {
             Result.failure(Exception(e.message ?: "Error de comunicación con el servidor", e))
         }

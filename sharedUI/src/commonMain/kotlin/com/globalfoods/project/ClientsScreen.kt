@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -51,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.clients.ClientRepository
+import com.globalfoods.project.sharedlogic.network.core.ApiConflictException
 import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
@@ -107,24 +110,30 @@ internal fun pendingOrdersMessage(clientName: String, pending: List<OrderRespons
 internal fun pendingBranchOrdersMessage(branchName: String, pending: List<OrderResponse>): String =
     "La sucursal \"${branchName.ifBlank { "sin nombre" }}\" ${pendingOrdersSummary(pending)}"
 
+private const val IN_PROCESS_SUFFIX = "tiene pedidos en proceso. Podrá darse de baja cuando esos pedidos se entreguen o se cancelen."
+
+/**
+ * Aviso cuando la API rechaza la baja del cliente (409) sin decir qué pedidos son, por ejemplo
+ * porque entró un pedido después de que la pantalla cargó la lista.
+ */
+internal fun clientInProcessMessage(clientName: String): String =
+    "\"${clientName.ifBlank { "Este cliente" }}\" $IN_PROCESS_SUFFIX"
+
+/** Igual que [clientInProcessMessage], para la baja de una sucursal. */
+internal fun branchInProcessMessage(branchName: String): String =
+    "La sucursal \"${branchName.ifBlank { "sin nombre" }}\" $IN_PROCESS_SUFFIX"
+
 /** La baja no se hizo porque hay pedidos pendientes; su mensaje es el texto del aviso. */
 internal class PendingOrdersException(message: String) : Exception(message)
 
 /**
- * Vuelve a consultar los pedidos (por si entró uno mientras la pantalla estaba abierta) y da de baja
- * la sucursal solo si no tiene pedidos pendientes. Si los tiene, falla con [PendingOrdersException];
- * si no se pueden consultar, tampoco la da de baja.
+ * Da de baja la sucursal. La API revisa los pedidos pendientes y, si los hay, responde 409:
+ * en ese caso falla con [PendingOrdersException] y el texto del aviso (CU-22, A1).
  */
-internal suspend fun deactivateBranchIfNoPendingOrders(repository: OrderRepository, branch: Branch): Result<Unit> {
-    val orders = repository.getOrders().getOrElse {
-        return Result.failure(
-            Exception("No se pudo verificar si la sucursal tiene pedidos pendientes, así que no se dio de baja. ${it.message.orEmpty()}".trim())
-        )
+internal suspend fun deactivateBranchIfNoPendingOrders(repository: OrderRepository, branch: Branch): Result<Unit> =
+    repository.setBranchActive(branch, active = false).recoverCatching { error ->
+        throw if (error is ApiConflictException) PendingOrdersException(branchInProcessMessage(branch.name)) else error
     }
-    val pending = pendingBranchOrders(orders, branch.id)
-    if (pending.isNotEmpty()) return Result.failure(PendingOrdersException(pendingBranchOrdersMessage(branch.name, pending)))
-    return repository.setBranchActive(branch, active = false)
-}
 
 @Composable
 fun ClientsScreen(
@@ -295,6 +304,9 @@ private fun ClientCard(client: AdminClient, onClick: () -> Unit) {
 /**
  * Alta ([client] null) o edición de un cliente. Al editar, la contraseña es opcional:
  * si se deja vacía se conserva la actual. La baja y la reactivación se hacen desde el detalle.
+ *
+ * Valida con las reglas de RF-CLI-02/03. Los errores se marcan en rojo bajo cada campo después
+ * del primer intento de guardar, y desaparecen en cuanto el dato se corrige.
  */
 @Composable
 internal fun ClientDialog(
@@ -304,40 +316,52 @@ internal fun ClientDialog(
     onSave: (name: String, phone: String, user: String, password: String) -> Unit
 ) {
     var name by remember(client) { mutableStateOf(client?.name.orEmpty()) }
-    var phone by remember(client) { mutableStateOf(client?.phone.orEmpty()) }
+    var phone by remember(client) { mutableStateOf(phoneInput(client?.phone.orEmpty())) }
     var user by remember(client) { mutableStateOf(client?.user.orEmpty()) }
     var password by remember(client) { mutableStateOf("") }
     var showPassword by remember(client) { mutableStateOf(false) }
+    var submitted by remember(client) { mutableStateOf(false) }
     val isNew = client == null
-    val valid = name.isNotBlank() && user.isNotBlank() && (!isNew || password.length >= 4)
+    val errors = validateClientForm(name, phone, user, password, originalUser = client?.user)
+    val shown = if (submitted) errors else ClientFormErrors()
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (isNew) "Nuevo cliente" else "Editar cliente", color = Navy, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nombre o razón social") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                ValidatedTextField(
+                    name,
+                    { name = it.take(MAX_CLIENT_NAME) },
+                    label = "Nombre o razón social",
+                    error = shown.name,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ValidatedTextField(
                     phone,
-                    { value -> phone = value.filter { it.isDigit() || it in " +-()" }.take(20) },
-                    label = { Text("Celular") },
-                    singleLine = true,
+                    { phone = phoneInput(it) },
+                    label = "Celular (10 dígitos)",
+                    error = shown.phone,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                ValidatedTextField(
                     user,
-                    { value -> user = value.filterNot(Char::isWhitespace) },
-                    label = { Text("Usuario para iniciar sesión") },
-                    singleLine = true,
+                    { value -> user = value.filterNot(Char::isWhitespace).take(MAX_USER) },
+                    label = "Usuario para iniciar sesión",
+                    error = shown.user,
+                    hint = "De 6 a 20 caracteres, sin espacios.".takeIf { isNew },
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                ValidatedTextField(
                     password,
                     { password = it },
-                    label = { Text(if (isNew) "Contraseña (mínimo 4 caracteres)" else "Nueva contraseña (opcional)") },
-                    supportingText = if (isNew) null else ({ Text("Déjala vacía para conservar la actual.") }),
-                    singleLine = true,
+                    label = if (isNew) "Contraseña (mínimo 8 caracteres)" else "Nueva contraseña (opcional)",
+                    error = shown.password,
+                    hint = if (isNew) null else "Déjala vacía para conservar la actual.",
                     visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     trailingIcon = {
@@ -353,7 +377,13 @@ internal fun ClientDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(name, phone, user, password) }, enabled = valid && !saving) {
+            TextButton(
+                onClick = {
+                    submitted = true
+                    if (errors.isValid) onSave(name, phone, user, password)
+                },
+                enabled = !saving
+            ) {
                 Text(if (saving) "Guardando…" else "Guardar")
             }
         },
