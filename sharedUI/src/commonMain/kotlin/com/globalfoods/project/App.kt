@@ -29,7 +29,7 @@ fun App() {
         var pantallaLista by remember { mutableStateOf("Dashboard") }
         // Pedido anterior que se usa como base en "Repetir último pedido"
         var pedidoBase by remember { mutableStateOf<OrderResponse?>(null) }
-        // Cliente abierto desde la pestaña Clientes (administrador/empleado)
+        // Cliente abierto desde la pestaña Clientes (administrador/vendedor)
         var clienteSeleccionado by remember { mutableStateOf<AdminClient?>(null) }
         // Posición de las listas: se conserva al ir a un detalle y regresar; se reinicia al cerrar sesión.
         var sesion by remember { mutableStateOf(0) }

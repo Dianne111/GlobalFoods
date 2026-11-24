@@ -25,7 +25,7 @@ class ClientViewTest {
     fun aClientOnlySeesTheirOwnOrders() {
         assertEquals(listOf(1, 2, 4, 5), visibleToCurrentUser(responses, UserRole.Client, 7).map { it.id })
         assertEquals(emptyList(), visibleToCurrentUser(responses, UserRole.Client, null))
-        assertEquals(responses, visibleToCurrentUser(responses, UserRole.Employee, null))
+        assertEquals(responses, visibleToCurrentUser(responses, UserRole.Seller, null))
     }
 
     @Test
@@ -92,7 +92,7 @@ class ClientViewTest {
     fun aClientsOwnNameComesFromTheSessionInsteadOfTheClientCatalog() {
         val own = ownClientForSession(UserRole.Client, clientId = 7, userName = "MARISQUERIA PALO SEC")
         assertEquals(7, own?.id)
-        assertEquals(null, ownClientForSession(UserRole.Employee, clientId = 7, userName = "x"))
+        assertEquals(null, ownClientForSession(UserRole.Seller, clientId = 7, userName = "x"))
         assertEquals(null, ownClientForSession(UserRole.Client, clientId = null, userName = "x"))
 
         val order = toOrder(OrderResponse(id = 1, clientId = 7), mapOf(7 to own!!))

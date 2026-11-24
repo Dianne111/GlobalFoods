@@ -85,9 +85,8 @@ internal fun searchInventory(inventory: List<ArticuloInventario>, query: String)
 }
 
 /** Cantidad inicial al agregar: 1 kg, o lo disponible si hay menos. */
-internal fun initialQuantity(product: ArticuloInventario): String {
-    val isClient = sessionRol == UserRole.Client
-    val maxLimit = if (isClient) Double.MAX_VALUE else product.cantidadKg
+internal fun initialQuantity(product: ArticuloInventario, role: UserRole = sessionRol): String {
+    val maxLimit = if (role.canSeeInventory) product.cantidadKg else Double.MAX_VALUE
     return formatOrderKg(minOf(1.0, maxLimit).takeIf { it > 0 } ?: 1.0)
 }
 

@@ -25,9 +25,12 @@ class AuthRepository {
 
             if (response.status.isSuccess()) {
                 val loginResponse: LoginResponse = response.body()
+                // Solo entran Administrador, Vendedor y Cliente; cualquier otro rol se rechaza.
+                val rol = UserRole.fromApi(loginResponse.tipoUsuario)
+                    ?: return Result.failure(Exception(UserRole.INVALID_ROLE_MESSAGE))
                 sessionToken = loginResponse.accessToken
                 sessionNombreUsuario = loginResponse.nombre
-                sessionRol = UserRole.fromApi(loginResponse.tipoUsuario)
+                sessionRol = rol
                 sessionIdCliente = loginResponse.idCliente
 
                 Result.success(loginResponse)
@@ -53,7 +56,7 @@ class AuthRepository {
     fun cerrarSesion() {
         sessionToken = null
         sessionNombreUsuario = null
-        sessionRol = UserRole.Administrator
+        sessionRol = UserRole.Client
         sessionIdCliente = null
     }
 
