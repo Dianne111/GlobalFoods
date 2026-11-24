@@ -1,5 +1,6 @@
 package com.globalfoods.project.sharedlogic.network.core
 
+import com.globalfoods.project.sharedlogic.network.auth.UserRole
 import io.ktor.client.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.defaultRequest
@@ -7,22 +8,23 @@ import io.ktor.client.request.header
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 
-// El equivalente a tu localStorage
 var sessionToken: String? = null
 var sessionNombreUsuario: String? = null
+var sessionRol: UserRole = UserRole.Administrator
+/** IdCliente del usuario con rol Cliente; null mientras la API no lo devuelva en el login. */
+var sessionIdCliente: Int? = null
 
 val globalFoodsClient = HttpClient {
     install(ContentNegotiation) {
         json(Json {
-            ignoreUnknownKeys = true // Ignora campos extra si el backend los manda
+            ignoreUnknownKeys = true
             prettyPrint = true
         })
     }
 
-    // MÉTODO INFALIBLE: Inyectamos el header manualmente (igual que en JavaScript)
     defaultRequest {
-        if (sessionToken != null) {
-            header("Authorization", "Bearer $sessionToken")
+        sessionToken?.let { token ->
+            header("Authorization", listOf("Bearer", token).joinToString(" "))
         }
     }
 }
