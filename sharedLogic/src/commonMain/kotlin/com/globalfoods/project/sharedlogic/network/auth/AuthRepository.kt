@@ -1,7 +1,10 @@
 package com.globalfoods.project.sharedlogic.network.auth
 
 import com.globalfoods.project.sharedlogic.network.core.globalFoodsClient
+import com.globalfoods.project.sharedlogic.network.core.networkErrorMessage
 import com.globalfoods.project.sharedlogic.network.core.sessionNombreUsuario
+import com.globalfoods.project.sharedlogic.network.core.sessionIdCliente
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.core.sessionToken
 import io.ktor.client.call.body
 import io.ktor.client.request.post
@@ -22,8 +25,13 @@ class AuthRepository {
 
             if (response.status.isSuccess()) {
                 val loginResponse: LoginResponse = response.body()
+                // Solo entran Administrador, Vendedor y Cliente; cualquier otro rol se rechaza.
+                val rol = UserRole.fromApi(loginResponse.tipoUsuario)
+                    ?: return Result.failure(Exception(UserRole.INVALID_ROLE_MESSAGE))
                 sessionToken = loginResponse.accessToken
                 sessionNombreUsuario = loginResponse.nombre
+                sessionRol = rol
+                sessionIdCliente = loginResponse.idCliente
 
                 Result.success(loginResponse)
             } else {
@@ -37,15 +45,19 @@ class AuthRepository {
 
                 Result.failure(Exception(mensajeError))
             }
-        }catch (e: Throwable) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
             e.printStackTrace()
-            Result.failure(Exception("Error interno: ${e.message ?: e.toString()}"))
+            Result.failure(Exception(networkErrorMessage(e) ?: "Error interno: ${e.message ?: e.toString()}"))
         }
     }
 
     fun cerrarSesion() {
         sessionToken = null
         sessionNombreUsuario = null
+        sessionRol = UserRole.Client
+        sessionIdCliente = null
     }
 
     fun haySesion(): Boolean = sessionToken != null

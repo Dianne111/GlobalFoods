@@ -34,6 +34,8 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.uiTooling)
+            // BackHandler para el botón "atrás" del sistema (misma versión que usa androidApp).
+            implementation(libs.androidx.activity.compose)
         }
         commonMain.dependencies {
             api(project(":sharedLogic"))
