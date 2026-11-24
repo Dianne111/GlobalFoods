@@ -1,5 +1,6 @@
 package com.globalfoods.project
 
+import com.globalfoods.project.sharedlogic.network.auth.UserRole
 import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,8 +30,10 @@ class AddProductsTest {
 
     @Test
     fun startsWithOneKgOrWhatIsAvailable() {
-        assertEquals("1", initialQuantity(inventory[0]))
-        assertEquals("0.5", initialQuantity(inventory[2]))
+        assertEquals("1", initialQuantity(inventory[0], UserRole.Seller))
+        assertEquals("0.5", initialQuantity(inventory[2], UserRole.Seller))
+        // El cliente no ve existencias: siempre empieza en 1 kg.
+        assertEquals("1", initialQuantity(inventory[2], UserRole.Client))
     }
 
     @Test

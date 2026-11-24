@@ -117,10 +117,8 @@ fun DashboardScreen(
                 .padding(insets)
         ) {
             // El botón queda fijo arriba; el inventario y los pedidos se desplazan debajo.
-            if (sessionRol.canCreateOrders) {
-                PinnedTop(listState) {
-                    NewOrderButton(onClick = onNewOrder)
-                }
+            PinnedTop(listState) {
+                NewOrderButton(onClick = onNewOrder)
             }
             PullToRefreshBox(
                 isRefreshing = refreshing,
@@ -139,7 +137,7 @@ fun DashboardScreen(
                     verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
                     item {
-                        Spacer(Modifier.height(if (sessionRol.canCreateOrders) 7.dp else 16.dp))
+                        Spacer(Modifier.height(7.dp))
                         SectionLabel("INVENTARIO")
                         Spacer(Modifier.height(8.dp))
 
@@ -464,9 +462,8 @@ enum class MainTab(val label: String) {
 
 /** Pestañas que ve cada rol. El cliente administra sus sucursales en lugar del catálogo de clientes. */
 internal fun tabsFor(role: UserRole): List<MainTab> = when (role) {
-    UserRole.Administrator, UserRole.Employee -> listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Clientes)
+    UserRole.Administrator, UserRole.Seller -> listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Clientes)
     UserRole.Client -> listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Sucursales)
-    UserRole.Reports -> listOf(MainTab.Inicio)
 }
 
 private val MainTab.icon

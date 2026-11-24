@@ -10,6 +10,7 @@ import com.globalfoods.project.sharedlogic.network.auth.UserRole
 
 var sessionToken: String? = null
 var sessionNombreUsuario: String? = null
-var sessionRol: UserRole = UserRole.Administrator
+/** Sin sesión se asume el rol con menos permisos. */
+var sessionRol: UserRole = UserRole.Client
 /** IdCliente del usuario con rol Cliente; null mientras la API no lo devuelva en el login. */
 var sessionIdCliente: Int? = null
