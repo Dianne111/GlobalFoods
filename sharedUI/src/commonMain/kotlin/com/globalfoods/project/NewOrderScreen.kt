@@ -82,7 +82,6 @@ import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 private enum class NewOrderStep { Details, Catalog, Summary }
 
-private val freezerAddress = "Congeladora Global Foods México, Av. Principal 123, Guadalajara, Jalisco"
 private val customerBranches = listOf(
     "Sucursal Centro" to "Av. Juárez 120, Centro, Guadalajara, Jalisco",
     "Sucursal Norte" to "Av. Federalismo 850, Col. Lomas, Guadalajara, Jalisco"
@@ -93,7 +92,7 @@ internal data class NewOrderFormState(
     val clientId: Int? = null,
     val branchId: Int? = null,
     val client: String = "",
-    val clientType: String = "",
+    val clientType: String = "Cliente registrado",
     val phone: String = "",
     val branch: String = "",
     val address: String = "",
@@ -102,20 +101,16 @@ internal data class NewOrderFormState(
     val postalCode: String = "",
     val deliveryDate: String = millisToDate(currentDateMillis()),
     val notes: String = "",
-    val shipping: String = "",
     val deliveryMode: String = "Dirección",
     val payment: String = "Transferencia",
     val references: String = ""
 ) {
-    val shippingCost: Double
-        get() = shipping.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
-
     val hasCapturedData: Boolean
         get() = quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true } ||
             client.isNotBlank() || phone.isNotBlank() || branch.isNotBlank() ||
             address.isNotBlank() || street.isNotBlank() || neighborhood.isNotBlank() ||
             postalCode.isNotBlank() || deliveryDate.isNotBlank() ||
-            notes.isNotBlank() || shipping.isNotBlank()
+            notes.isNotBlank()
 }
 
 internal const val OUT_OF_STOCK_MESSAGE =
@@ -135,13 +130,35 @@ internal fun initialNewOrderForm(
     userName: String?,
     template: OrderResponse?
 ): NewOrderFormState {
-    val base = template?.let(::formFromOrder)?.copy(deliveryDate = NewOrderFormState().deliveryDate)
-        ?: NewOrderFormState()
+    val base = registeredOrderForm(template?.let(::formFromOrder)?.copy(deliveryDate = NewOrderFormState().deliveryDate)
+        ?: NewOrderFormState())
     if (!isClient) return base
     return base.copy(
         clientType = "Cliente registrado",
         clientId = clientId,
         client = base.client.ifBlank { userName.orEmpty() }
+    )
+}
+
+/** Los pedidos nuevos o editados siempre se vinculan a un cliente del catálogo. */
+internal fun registeredOrderForm(form: NewOrderFormState): NewOrderFormState {
+    if ((form.clientId ?: 0) > 0) return form.copy(clientType = "Cliente registrado")
+    val pickup = form.deliveryMode == "Recolección"
+    return form.copy(
+        clientType = "Cliente registrado", clientId = null, client = "", phone = "", branchId = null,
+        branch = if (pickup) PickupLocation.description else "",
+        address = if (pickup) PickupLocation.description else "",
+        street = "", neighborhood = "", postalCode = ""
+    )
+}
+
+internal fun selectRegisteredClient(form: NewOrderFormState, client: Client): NewOrderFormState {
+    val pickup = form.deliveryMode == "Recolección"
+    return form.copy(
+        clientType = "Cliente registrado", clientId = client.id, client = client.name, phone = client.phone,
+        branchId = null, branch = if (pickup) PickupLocation.description else "",
+        address = if (pickup) PickupLocation.description else "",
+        street = "", neighborhood = "", postalCode = ""
     )
 }
 
@@ -152,7 +169,10 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
     val clientType = delivery?.clientType?.takeIf { it.isNotBlank() }
         ?: if (order.clientId != null) "Cliente registrado" else "Cliente esporádico"
     val isPickup = delivery?.method == "Recolección"
-    val address = if (isPickup) freezerAddress else delivery?.address.orEmpty()
+    val clientId = order.clientId ?: order.client?.id
+    val linkedBranch = order.client?.branches?.firstOrNull { it.id == order.branchId && it.clientId == clientId }
+    val address = if (isPickup) PickupLocation.description else delivery?.address?.takeIf { it.isNotBlank() }
+        ?: linkedBranch?.address.orEmpty()
     val (street, neighborhood, postalCode) =
         if (!isPickup && clientType == "Cliente esporádico") splitAddress(address) else Triple("", "", "")
     return NewOrderFormState(
@@ -163,15 +183,16 @@ internal fun formFromOrder(order: OrderResponse): NewOrderFormState {
         branchId = order.branchId.takeUnless { isPickup },
         client = delivery?.clientName?.takeIf { it.isNotBlank() } ?: order.client?.name.orEmpty(),
         clientType = clientType,
-        phone = delivery?.phone?.takeIf { it.isNotBlank() } ?: order.client?.phone.orEmpty(),
-        branch = if (isPickup) "Congeladora Global Foods" else delivery?.branchName.orEmpty(),
+        phone = delivery?.phone?.takeIf { it.isNotBlank() } ?: order.client?.phone?.takeIf { it.isNotBlank() }
+            ?: linkedBranch?.phone.orEmpty(),
+        branch = if (isPickup) PickupLocation.description else delivery?.branchName?.takeIf { it.isNotBlank() }
+            ?: linkedBranch?.name.orEmpty(),
         address = address,
         street = street,
         neighborhood = neighborhood,
         postalCode = postalCode,
         deliveryDate = orderDateToText(order.date) ?: millisToDate(currentDateMillis()),
         notes = observations.notes,
-        shipping = delivery?.shippingCost?.takeIf { it > 0 }?.let(::formatQuantity).orEmpty(),
         deliveryMode = if (isPickup) "Recolección" else "Dirección",
         references = delivery?.references.orEmpty()
     )
@@ -235,7 +256,7 @@ fun NewOrderScreen(
     // El cliente pide para sí mismo: no elige cliente ni ve existencias.
     val isClient = sessionRol == UserRole.Client
     val initialForm = remember(orderToEdit, template) {
-        orderToEdit?.let(::formFromOrder)
+        orderToEdit?.let { registeredOrderForm(formFromOrder(it)) }
             ?: initialNewOrderForm(isClient, sessionIdCliente, sessionNombreUsuario, template)
     }
     val repository = remember { DashboardRepository() }
@@ -273,7 +294,7 @@ fun NewOrderScreen(
             onSuccess = { loaded ->
                 clients = loaded
                 val current = form
-                if (current.clientType == "Cliente registrado" && current.clientId != null) {
+                if (current.clientId != null) {
                     loaded.firstOrNull { it.id == current.clientId }?.let { client ->
                         form = current.copy(
                             client = current.client.ifBlank { client.name },
@@ -303,6 +324,15 @@ fun NewOrderScreen(
                         loadingBranches = false
                         // Al repetir un pedido, la sucursal original pudo haberse eliminado.
                         val current = form
+                        if (current.deliveryMode != "Recolección") {
+                            selectedClientBranches.firstOrNull { it.id == current.branchId }?.let { branch ->
+                                form = current.copy(
+                                    branch = current.branch.ifBlank { branch.name },
+                                    address = current.address.ifBlank { branch.address },
+                                    phone = current.phone.ifBlank { branch.phone }
+                                )
+                            }
+                        }
                         if (!isEditing && current.branchId != null &&
                             selectedClientBranches.none { it.id == current.branchId }
                         ) {
@@ -321,7 +351,7 @@ fun NewOrderScreen(
     }
 
     LaunchedEffect(orderToEdit) {
-        if (initialForm.clientType == "Cliente registrado" && initialForm.clientId != null) {
+        if (initialForm.clientId != null) {
             loadBranches(initialForm.clientId)
         }
     }
@@ -330,7 +360,8 @@ fun NewOrderScreen(
         when (step) {
             NewOrderStep.Catalog, NewOrderStep.Summary -> step = NewOrderStep.Details
             NewOrderStep.Details -> {
-                // Solo pregunta si se capturó algo respecto a como se abrió la pantalla.
+                // Solo pregunta si se capturó algo respecto a como se abrió la pantalla
+                // (cualquier dato: productos, cliente, fecha, sucursal, entrega u observaciones).
                 val hasChanges = form != initialForm
                 if (hasChanges) {
                     showDiscardDialog = true
@@ -340,6 +371,9 @@ fun NewOrderScreen(
             }
         }
     }
+
+    // El "atrás" del sistema hace lo mismo que la flecha: regresa un paso o pregunta si descartar.
+    PlatformBackHandler(enabled = !showDiscardDialog) { goBack() }
 
     if (showDiscardDialog) {
         androidx.compose.ui.window.Dialog(onDismissRequest = { showDiscardDialog = false }) {
@@ -365,12 +399,9 @@ fun NewOrderScreen(
                         TextButton(onClick = { showDiscardDialog = false }) { Text("Continuar editando") }
                         TextButton(onClick = {
                             showDiscardDialog = false
-                            if (isEditing) {
-                                onBack()
-                            } else {
-                                form = NewOrderFormState()
-                                step = NewOrderStep.Details
-                            }
+                            form = NewOrderFormState()
+                            step = NewOrderStep.Details
+                            onBack()
                         }) { Text("Descartar", color = Color(0xFFB91C1C)) }
                     }
                 }
@@ -421,6 +452,7 @@ fun NewOrderScreen(
             NewOrderStep.Details -> DetailsStep(
                 form = form,
                 isClient = isClient,
+                isEditing = isEditing,
                 clients = clients,
                 selectedClientBranches = selectedClientBranches,
                 loadingBranches = loadingBranches,
@@ -431,6 +463,8 @@ fun NewOrderScreen(
                 onContinue = { step = NewOrderStep.Summary },
                 onCatalog = { step = NewOrderStep.Catalog },
                 inventory = inventory,
+                inventoryLoading = loading,
+                inventoryError = error,
                 modifier = Modifier.padding(insets)
             )
             NewOrderStep.Summary -> SummaryStep(
@@ -438,17 +472,29 @@ fun NewOrderScreen(
                 inventory = inventory,
                 onFormChange = { form = it },
                 onEdit = { step = NewOrderStep.Details },
-                onProducts = { step = NewOrderStep.Catalog },
+                onProducts = { step = if (isClient) NewOrderStep.Catalog else NewOrderStep.Details },
                 submitLabel = if (isEditing) "Guardar cambios" else "Registrar pedido pendiente",
                 onSubmit = {
+                    if ((form.clientId ?: 0) <= 0) {
+                        saveError = SELECT_CLIENT_MESSAGE
+                        return@SummaryStep
+                    }
                     val products = selectedProducts(form.quantities, inventory)
                     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
-                    val total = products.sumOf { it.precio * (form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0) } +
-                        form.shippingCost
+                    val total = orderProductsTotal(form.quantities, inventory)
+                    val selectedCreationDate = dateToMillis(form.deliveryDate)
+                    if (selectedCreationDate == null) {
+                        saveError = "Selecciona una fecha de creación válida."
+                        return@SummaryStep
+                    }
+                    if (!isEditing && !isSelectableCreationDate(selectedCreationDate)) {
+                        saveError = "La fecha de creación debe ser hoy o un día futuro."
+                        return@SummaryStep
+                    }
                     val date = form.deliveryDate.split('/').let {
                         if (it.size == 3) "${it[2]}${it[1]}${it[0]}".toIntOrNull() else null
                     } ?: 0
-                    if (exceedsStock(form.quantities, products)) {
+                    if (!isClient && exceedsStock(form.quantities, products)) {
                         saveError = OUT_OF_STOCK_MESSAGE
                         return@SummaryStep
                     }
@@ -460,22 +506,23 @@ fun NewOrderScreen(
                     val isPickup = form.deliveryMode == "Recolección"
                     val delivery = OrderDeliveryInfo(
                         clientName = form.client.trim(),
-                        clientType = form.clientType,
+                        clientType = "Cliente registrado",
                         method = form.deliveryMode,
                         address = if (isPickup) "" else form.address,
                         phone = form.phone.trim(),
                         branchName = if (isPickup) "" else form.branch,
-                        references = form.references,
-                        shippingCost = form.shippingCost
+                        references = form.references
                     )
                     val request = OrderRequest(
-                        clientId = form.clientId.takeIf { form.clientType == "Cliente registrado" },
+                        clientId = form.clientId,
                         branchId = form.branchId.takeUnless { isPickup },
                         date = date,
+                        paymentMethod = orderToEdit?.paymentMethod ?: 0,
+                        deliveryDate = orderToEdit?.deliveryDate,
                         totalKg = totalKg,
                         total = total,
                         status = orderToEdit?.status ?: 1,
-                        notes = OrderObservations(form.notes, delivery).encode(),
+                        notes = OrderObservations(form.notes, delivery).encodeForWeb(date),
                         lines = products.map {
                             val quantity = form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0
                             OrderLineRequest(it.codigoProducto, it.talla, quantity, it.precio, quantity * it.precio)
@@ -505,6 +552,7 @@ fun NewOrderScreen(
     if (showDatePicker) {
         DateSelectionDialog(
             initialValue = form.deliveryDate,
+            allowPastDates = isEditing,
             onDismissRequest = { showDatePicker = false },
             onConfirm = { date ->
                 form = form.copy(deliveryDate = date)
@@ -664,6 +712,7 @@ private fun CatalogProductCard(
 private fun DetailsStep(
     form: NewOrderFormState,
     isClient: Boolean,
+    isEditing: Boolean,
     clients: List<Client>,
     selectedClientBranches: List<Branch>,
     loadingBranches: Boolean,
@@ -674,8 +723,17 @@ private fun DetailsStep(
     onContinue: () -> Unit,
     onCatalog: () -> Unit,
     inventory: List<ArticuloInventario>,
+    inventoryLoading: Boolean = false,
+    inventoryError: String? = null,
     modifier: Modifier
 ) {
+    // Vendedor/administrador: los errores se marcan en rojo bajo cada campo después del primer
+    // intento de continuar (RF-PED-01). La vista del cliente conserva su comportamiento.
+    var submitted by remember { mutableStateOf(false) }
+    val errors = if (isClient) OrderFormErrors() else validateOrderForm(form, isEditing, currentDateMillis(), inventory)
+    val shown = if (submitted) errors else OrderFormErrors()
+    // Pedir más de lo disponible se avisa de inmediato; la cantidad en cero, al intentar continuar.
+    val shownLines = if (submitted) errors.lines else stockErrors(form.quantities, inventory)
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("DETALLES DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 22.dp))
@@ -687,78 +745,40 @@ private fun DetailsStep(
                     Text(form.client.ifBlank { "Mi cuenta" }, color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             } else {
-            DropdownField(
-                label = "Tipo de cliente",
-                value = form.clientType,
-                options = listOf("Cliente registrado", "Cliente esporádico"),
-                onSelected = {
-                    onClientSelected(null)
-                    onFormChange(
-                        form.copy(
-                            clientType = it,
-                            client = "",
-                            clientId = null,
-                            phone = "",
-                            branch = "",
-                            branchId = null,
-                            address = "",
-                            street = "",
-                            neighborhood = "",
-                            postalCode = ""
-                        )
-                    )
-                }
-            )
-            if (form.clientType == "Cliente registrado") {
                 DropdownField(
                     label = "Cliente",
                     value = form.client,
-                    options = clients.map { it.name },
-                    onSelected = { name ->
-                        val client = clients.firstOrNull { it.name == name }
+                    error = shown.client,
+                    options = clients,
+                    optionLabel = { it.name },
+                    onSelected = { client ->
+                        onFormChange(selectRegisteredClient(form, client))
                         onClientSelected(client)
-                        onFormChange(
-                            form.copy(
-                                client = name,
-                                clientId = client?.id,
-                                phone = client?.phone.orEmpty(),
-                                branch = "",
-                                branchId = null,
-                                address = ""
-                            )
-                        )
                     }
                 )
-            } else if (form.clientType == "Cliente esporádico") {
-                FormField("Nombre del cliente", form.client, { onFormChange(form.copy(client = it)) })
-            }
-            if (form.clientType.isNotBlank()) {
                 FormField(
                     label = "Celular",
                     value = form.phone,
-                    onValueChange = { onFormChange(form.copy(phone = it)) },
+                    onValueChange = {},
                     keyboardType = KeyboardType.Phone,
-                    readOnly = form.clientType == "Cliente registrado"
+                    readOnly = true
                 )
             }
-            }
             Spacer(Modifier.height(10.dp))
-            Text("RESUMEN DEL PEDIDO", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-        }
-        items(selectedProducts(form.quantities, inventory), key = { it.talla }) { product ->
-            MiniProductCard(
-                product = product,
-                quantity = form.quantities[product.talla] ?: "0",
-                onEdit = onCatalog,
-                onRemove = {
-                    onFormChange(form.copy(quantities = form.quantities - product.talla))
-                }
+
+            // ¡Aquí está la clave! Ahora tanto el cliente como el admin usan la misma sección de productos
+            AdminProductsSection(
+                quantities = form.quantities,
+                inventory = inventory,
+                loading = inventoryLoading,
+                loadError = inventoryError,
+                sectionError = shown.products,
+                // Si es cliente no validamos stock en tiempo real porque su catálogo no lo trae
+                lineErrors = if (isClient) emptyMap() else shownLines,
+                onQuantitiesChange = { onFormChange(form.copy(quantities = it)) }
             )
         }
         item {
-            Button(onClick = onCatalog, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1197C5)), modifier = Modifier.fillMaxWidth()) {
-                Text("Agregar productos")
-            }
             Spacer(Modifier.height(14.dp))
             Text("MÉTODO DE ENTREGA", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Row(Modifier.fillMaxWidth()) {
@@ -769,8 +789,8 @@ private fun DetailsStep(
                                 form.copy(
                                     deliveryMode = mode,
                                     branchId = null,
-                                    branch = if (mode == "Recolección") "Congeladora Global Foods" else "",
-                                    address = if (mode == "Recolección") freezerAddress else "",
+                                    branch = if (mode == "Recolección") PickupLocation.description else "",
+                                    address = if (mode == "Recolección") PickupLocation.description else "",
                                     street = if (mode == "Recolección") "" else form.street,
                                     neighborhood = if (mode == "Recolección") "" else form.neighborhood,
                                     postalCode = if (mode == "Recolección") "" else form.postalCode
@@ -784,10 +804,11 @@ private fun DetailsStep(
                 }
             }
             if (form.deliveryMode == "Recolección") {
-                AddressCard(freezerAddress, title = "Dirección de la congeladora")
-            } else if (form.clientType == "Cliente registrado") {
+                AddressCard(PickupLocation.description, title = "Punto de recolección", mapsUrl = PickupLocation.mapsUrl)
+            } else {
                 BranchField(
                     value = form.branch,
+                    error = shown.branch,
                     options = selectedClientBranches.map { it.name },
                     onSelected = { branchName ->
                         val branch = selectedClientBranches.firstOrNull { it.name == branchName }
@@ -805,7 +826,7 @@ private fun DetailsStep(
                         color = Color(0xFFB91C1C),
                         fontSize = 12.sp
                     )
-                } else if (form.branch.isBlank()) {
+                } else if (form.branch.isBlank() && shown.branch == null) {
                     Text(
                         "Selecciona una sucursal de tu perfil para continuar.",
                         color = Color(0xFFB45309),
@@ -814,80 +835,31 @@ private fun DetailsStep(
                 } else {
                     AddressCard(form.address)
                 }
-            } else {
-                Text(
-                    "Dirección de entrega",
-                    color = Navy,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                FormField(
-                    "Calle",
-                    form.street,
-                    {
-                        onFormChange(
-                            form.copy(
-                                street = it,
-                                address = buildAddress(it, form.neighborhood, form.postalCode)
-                            )
-                        )
-                    }
-                )
-                FormField(
-                    "Colonia",
-                    form.neighborhood,
-                    {
-                        onFormChange(
-                            form.copy(
-                                neighborhood = it,
-                                address = buildAddress(form.street, it, form.postalCode)
-                            )
-                        )
-                    }
-                )
-                FormField(
-                    "Código postal",
-                    form.postalCode,
-                    {
-                        val postalCode = it.filter(Char::isDigit).take(5)
-                        onFormChange(
-                            form.copy(
-                                postalCode = postalCode,
-                                address = buildAddress(form.street, form.neighborhood, postalCode)
-                            )
-                        )
-                    },
-                    KeyboardType.Number
-                )
-                if (form.street.isBlank() || form.neighborhood.isBlank() || form.postalCode.isBlank()) {
-                    Text(
-                        "Captura calle, colonia y código postal para definir la ubicación de entrega.",
-                        color = Color(0xFFB45309),
-                        fontSize = 12.sp
-                    )
-                }
-            }
-            if (form.clientType.isBlank()) {
-                Text(
-                    "Selecciona el tipo de cliente para definir la ubicación de entrega.",
-                    color = Color(0xFFB45309),
-                    fontSize = 12.sp
-                )
             }
             DateField(form.deliveryDate, onClick = onDatePicker)
-            FormField("Observaciones", form.notes, { onFormChange(form.copy(notes = it)) }, singleLine = false)
-            FormField("Costo de envío", form.shipping, { onFormChange(form.copy(shipping = it)) }, KeyboardType.Decimal)
+            shown.date?.let { FieldError(it) }
+            FormField(
+                "Observaciones",
+                form.notes,
+                { onFormChange(form.copy(notes = if (isClient) it else it.take(MAX_ORDER_NOTES))) },
+                singleLine = false,
+                error = shown.notes,
+                hint = if (isClient) null else "${form.notes.length}/$MAX_ORDER_NOTES"
+            )
             val hasProducts = form.quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true }
-            val hasClient = if (form.clientType == "Cliente registrado") form.clientId != null else form.client.isNotBlank()
-            val hasLocation = form.deliveryMode == "Recolección" ||
-                (form.clientType == "Cliente registrado" && form.branchId != null) ||
-                (form.clientType == "Cliente esporádico" &&
-                    form.street.isNotBlank() &&
-                    form.neighborhood.isNotBlank() &&
-                    form.postalCode.length == 5)
+            val hasClient = (form.clientId ?: 0) > 0
+            val hasLocation = form.deliveryMode == "Recolección" || (form.branchId ?: 0) > 0
             Button(
-                onClick = onContinue,
-                enabled = hasClient && hasProducts && hasLocation,
+                onClick = {
+                    if (isClient) {
+                        onContinue()
+                    } else {
+                        submitted = true
+                        if (errors.isValid) onContinue()
+                    }
+                },
+                // Al cliente se le deshabilita como antes; al vendedor/administrador se le explica qué falta.
+                enabled = !isClient || (hasClient && hasProducts && hasLocation),
                 colors = ButtonDefaults.buttonColors(containerColor = Navy),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp).height(52.dp)
             ) {
@@ -910,19 +882,15 @@ private fun SummaryStep(
 ) {
     val products = selectedProducts(form.quantities, inventory)
     val totalKg = products.sumOf { form.quantities[it.talla]?.toDoubleOrNull() ?: 0.0 }
-    val subtotal = products.sumOf { product ->
-        (form.quantities[product.talla]?.toDoubleOrNull() ?: 0.0) * product.precio
-    }
-    val shippingCost = form.shippingCost
-    val total = subtotal + shippingCost
+    val total = orderProductsTotal(form.quantities, inventory)
     LazyColumn(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("CLIENTE", color = Gray, fontSize = 12.sp)
-            Text(form.client.ifBlank { "Cliente esporádico" }, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(form.client.ifBlank { "Selecciona un cliente" }, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text("UBICACIÓN DE ENTREGA", color = Gray, fontSize = 12.sp)
             Text(
-                if (form.deliveryMode == "Recolección") freezerAddress
+                if (form.deliveryMode == "Recolección") PickupLocation.description
                 else form.address.ifBlank { "Ubicación pendiente" },
                 color = Navy,
                 fontSize = 15.sp,
@@ -944,8 +912,7 @@ private fun SummaryStep(
         item {
             HorizontalDivider()
             SummaryAmountRow("Total de kilos", "${totalKg} kg")
-            SummaryAmountRow("Subtotal", "$${subtotal}")
-            SummaryAmountRow("Costo de envío", "$${shippingCost}")
+            SummaryAmountRow("Subtotal", "$${total}")
             SummaryAmountRow("Descuento", "$0.00")
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             SummaryAmountRow("Importe total", "$${total}", emphasized = true)
@@ -981,13 +948,29 @@ private fun SummaryAmountRow(label: String, value: String, emphasized: Boolean =
 private fun selectedProducts(quantities: Map<String, String>, inventory: List<ArticuloInventario>) =
     inventory.filter { quantities[it.talla]?.toDoubleOrNull()?.let { value -> value > 0 } == true }
 
-private fun normalizeQuantity(value: String, maximum: Double): String {
-    val normalized = value.replace(',', '.')
-        .filter { it.isDigit() || it == '.' }
-    val amount = normalized.toDoubleOrNull() ?: return ""
-    return amount.coerceIn(0.0, maximum).let { result ->
-        if (result == 0.0) "" else result.toString().trimEnd('0').trimEnd('.')
+/** Importe del pedido: únicamente cantidad por precio de los productos seleccionados. */
+internal fun orderProductsTotal(quantities: Map<String, String>, inventory: List<ArticuloInventario>): Double =
+    selectedProducts(quantities, inventory).sumOf { product ->
+        (quantities[product.talla]?.toDoubleOrNull() ?: 0.0) * product.precio
     }
+
+/** Conserva estados de escritura como "0." y "10." antes de capturar la fracción. */
+internal fun normalizeQuantity(value: String, maximum: Double): String {
+    val cleaned = value.replace(',', '.')
+        .filter { it.isDigit() || it == '.' }
+    // Un segundo separador no forma parte de una cantidad válida.
+    val prefix = Regex("^\\d*(?:\\.\\d*)?").find(cleaned)?.value.orEmpty()
+    if (prefix.isEmpty()) return ""
+    val normalized = prefix.trimStart('0').let {
+        when {
+            it.isEmpty() -> "0"
+            it.startsWith('.') -> "0$it"
+            else -> it
+        }
+    }
+    val amount = normalized.toDoubleOrNull() ?: return ""
+    if (!amount.isFinite()) return ""
+    return if (amount > maximum) formatQuantity(maximum) else normalized
 }
 
 @Composable
@@ -1011,11 +994,13 @@ private fun MiniProductCard(
 }
 
 @Composable
-private fun DropdownField(
+private fun <T> DropdownField(
     label: String,
     value: String,
-    options: List<String>,
-    onSelected: (String) -> Unit
+    options: List<T>,
+    onSelected: (T) -> Unit,
+    error: String? = null,
+    optionLabel: (T) -> String = { it.toString() }
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -1025,6 +1010,8 @@ private fun DropdownField(
             readOnly = true,
             label = { Text(label) },
             placeholder = { Text("Seleccionar") },
+            isError = error != null,
+            supportingText = error?.let { { Text(it) } },
             modifier = Modifier.fillMaxWidth(),
             colors = outlinedFieldColors()
         )
@@ -1040,7 +1027,7 @@ private fun DropdownField(
         ) {
             options.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option) },
+                    text = { Text(optionLabel(option)) },
                     onClick = {
                         onSelected(option)
                         expanded = false
@@ -1052,12 +1039,13 @@ private fun DropdownField(
 }
 
 @Composable
-private fun BranchField(value: String, options: List<String>, onSelected: (String) -> Unit) {
+private fun BranchField(value: String, options: List<String>, onSelected: (String) -> Unit, error: String? = null) {
     DropdownField(
         label = "Sucursal",
         value = value,
         options = options,
-        onSelected = onSelected
+        onSelected = onSelected,
+        error = error
     )
 }
 
@@ -1072,7 +1060,7 @@ private fun buildAddress(street: String, neighborhood: String, postalCode: Strin
     ).filter(String::isNotBlank).joinToString(", ")
 
 @Composable
-private fun AddressCard(address: String, title: String = "Dirección de entrega") {
+private fun AddressCard(address: String, title: String = "Dirección de entrega", mapsUrl: String? = null) {
     val uriHandler = LocalUriHandler.current
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -1087,7 +1075,7 @@ private fun AddressCard(address: String, title: String = "Dirección de entrega"
             )
             TextButton(onClick = {
                 uriHandler.openUri(
-                    "https://www.google.com/maps/search/?api=1&query=${address.ifBlank { "Global Foods Mexico" }.replace(" ", "+")}"
+                    mapsUrl ?: "https://www.google.com/maps/search/?api=1&query=${address.ifBlank { "Global Foods Mexico" }.replace(" ", "+")}"
                 )
             }) {
                 Text("Revisar ubicación en Google Maps", color = Color(0xFF168BC1))
@@ -1108,7 +1096,7 @@ private fun DateField(value: String, onClick: () -> Unit) {
             onValueChange = {},
             readOnly = true,
             enabled = false,
-            label = { Text("Fecha de entrega") },
+            label = { Text("Fecha de creación") },
             placeholder = { Text("Seleccionar fecha") },
             modifier = Modifier.fillMaxWidth(),
             trailingIcon = { Text("▣", color = Navy, modifier = Modifier.padding(end = 12.dp)) },
@@ -1128,18 +1116,24 @@ private fun DateField(value: String, onClick: () -> Unit) {
 @Composable
 private fun DateSelectionDialog(
     initialValue: String,
+    allowPastDates: Boolean = false,
     onDismissRequest: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
     val today = currentDateMillis()
-    val firstSelectableDate = today + MILLIS_PER_DAY
     val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = dateToMillis(initialValue)
-            ?.takeIf { it >= firstSelectableDate },
+        initialSelectedDateMillis = (dateToMillis(initialValue) ?: today).let {
+            if (allowPastDates) it else maxOf(it, today)
+        },
         yearRange = 1900..2100,
-        selectableDates = object : SelectableDates {
-            override fun isSelectableDate(utcTimeMillis: Long): Boolean =
-                utcTimeMillis >= firstSelectableDate
+        selectableDates = remember(allowPastDates) {
+            object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                    allowPastDates || isSelectableCreationDate(utcTimeMillis)
+
+                override fun isSelectableYear(year: Int): Boolean =
+                    allowPastDates || year >= currentPaymentDate() / 10000
+            }
         }
     )
     val selectedDate = datePickerState.selectedDateMillis
@@ -1152,8 +1146,13 @@ private fun DateSelectionDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(millisToDate(selectedDate!!)) },
-                enabled = selectedDate != null
+                onClick = {
+                    val selected = datePickerState.selectedDateMillis
+                    if (selected != null && (allowPastDates || isSelectableCreationDate(selected))) {
+                        onConfirm(millisToDate(selected))
+                    }
+                },
+                enabled = selectedDate != null && (allowPastDates || isSelectableCreationDate(selectedDate))
             ) { Text("Aceptar") }
         },
         dismissButton = {
@@ -1174,7 +1173,7 @@ private fun DateSelectionDialog(
             },
             headline = {
                 Text(
-                    "Selecciona la fecha de entrega",
+                    "Selecciona la fecha de creación",
                     color = Gray,
                     fontSize = 11.sp,
                     maxLines = 1
@@ -1185,10 +1184,16 @@ private fun DateSelectionDialog(
     }
 }
 
-private fun currentDateMillis(): Long =
-    (kotlin.time.Clock.System.now().toEpochMilliseconds() / MILLIS_PER_DAY) * MILLIS_PER_DAY
+// DatePicker representa días con medianoche UTC; el día civil se toma del teléfono.
+private fun currentDateMillis(): Long {
+    val date = currentPaymentDate()
+    return daysFromCivil(date / 10000, date / 100 % 100, date % 100) * MILLIS_PER_DAY
+}
 
-private fun dateToMillis(value: String): Long? {
+internal fun isSelectableCreationDate(dateMillis: Long?, todayMillis: Long = currentDateMillis()): Boolean =
+    dateMillis != null && dateMillis >= todayMillis
+
+internal fun dateToMillis(value: String): Long? {
     if (!value.matches(Regex("\\d{2}/\\d{2}/\\d{4}"))) return null
 
     val day = value.substring(0, 2).toInt()
@@ -1253,18 +1258,31 @@ private fun FormField(
     onValueChange: (String) -> Unit,
     keyboardType: KeyboardType = KeyboardType.Text,
     singleLine: Boolean = true,
-    readOnly: Boolean = false
+    readOnly: Boolean = false,
+    /** Mensaje en rojo debajo del campo (borde y etiqueta en rojo). */
+    error: String? = null,
+    /** Ayuda en gris debajo del campo cuando no hay error. */
+    hint: String? = null
 ) {
+    val supporting = error ?: hint
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
+        isError = error != null,
+        supportingText = supporting?.let { { Text(it) } },
         modifier = Modifier.fillMaxWidth(),
         singleLine = singleLine,
         readOnly = readOnly,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         colors = outlinedFieldColors()
     )
+}
+
+/** Mensaje en rojo debajo de un control que no es campo de texto (productos, fecha). */
+@Composable
+private fun FieldError(message: String) {
+    Text(message, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, top = 2.dp))
 }
 
 @Composable

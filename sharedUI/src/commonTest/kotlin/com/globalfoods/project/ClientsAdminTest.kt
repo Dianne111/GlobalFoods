@@ -75,4 +75,16 @@ class ClientsAdminTest {
         val many = pendingOrdersMessage("El Faro", (1..7).map { OrderResponse(id = it, clientId = 3) })
         assertTrue("7 pedidos en proceso" in many && "#5" in many && "#6" !in many && "y 2 más" in many)
     }
+
+    @Test
+    fun apiRejectionMessagesFollowTheUseCases() {
+        assertEquals(
+            "\"El Faro\" tiene pedidos en proceso. Podrá darse de baja cuando esos pedidos se entreguen o se cancelen.",
+            clientInProcessMessage("El Faro")
+        )
+        assertEquals(
+            "La sucursal \"Centro\" tiene pedidos en proceso. Podrá darse de baja cuando esos pedidos se entreguen o se cancelen.",
+            branchInProcessMessage("Centro")
+        )
+    }
 }

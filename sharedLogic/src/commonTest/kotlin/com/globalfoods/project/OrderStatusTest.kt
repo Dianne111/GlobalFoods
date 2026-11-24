@@ -25,10 +25,22 @@ class OrderStatusTest {
     }
 
     @Test
-    fun ordersCanBeCancelledUntilTheyAreDelivered() {
+    fun ordersCanOnlyBeCancelledBeforeLeavingForDelivery() {
+        assertEquals(
+            listOf(OrderStatus.Created, OrderStatus.Supplied),
+            OrderStatus.entries.filter { it.isCancellable }
+        )
+        assertEquals(
+            "El pedido no puede cancelarse porque se encuentra En reparto.",
+            OrderStatus.InDelivery.cancelBlockedMessage
+        )
+    }
+
+    @Test
+    fun ordersInDeliveryAreStillInProcess() {
         assertEquals(
             listOf(OrderStatus.Created, OrderStatus.Supplied, OrderStatus.InDelivery),
-            OrderStatus.entries.filter { it.isCancellable }
+            OrderStatus.entries.filter { it.isInProcess }
         )
     }
 
@@ -58,9 +70,9 @@ class OrderStatusTest {
     }
 
     @Test
-    fun onlyCreatedOrdersAreEditableAndOnlyDeliveredOnesAcceptPayment() {
+    fun onlyCreatedOrdersAreEditableAndOnlyInDeliveryOnesAcceptPayment() {
         assertEquals(listOf(OrderStatus.Created), OrderStatus.entries.filter { it.isEditable })
-        assertEquals(listOf(OrderStatus.Delivered), OrderStatus.entries.filter { it.acceptsPayment })
+        assertEquals(listOf(OrderStatus.InDelivery), OrderStatus.entries.filter { it.acceptsPayment })
         assertFalse(OrderStatus.Cancelled in OrderStatus.flow)
         assertTrue(OrderStatus.flow.zipWithNext().all { (a, b) -> a.code < b.code })
     }

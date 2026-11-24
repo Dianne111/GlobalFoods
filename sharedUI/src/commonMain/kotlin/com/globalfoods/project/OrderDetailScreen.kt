@@ -28,11 +28,22 @@ import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.paymentMethodLabel
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
 import com.globalfoods.project.sharedlogic.network.orders.orderStatus
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import kotlinx.coroutines.launch
+
+/** RF-PED-03: advertencia, sin bloquear, al cancelar un pedido Surtido. */
+internal const val SUPPLIED_CANCEL_WARNING = "Almacén ya surtió este pedido."
+
+/** RF-PED-03: confirmación antes de cancelar. [number] es el folio, p. ej. "#22". */
+internal fun cancelConfirmationText(number: String): String =
+    "¿Está seguro de que desea cancelar el pedido $number? Esta acción no se puede deshacer."
+
+/** RF-PED-03: mensaje al cancelar. */
+internal fun cancelledMessage(number: String): String = "Pedido $number cancelado."
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,6 +61,8 @@ fun OrderDetailScreen(
     var isCancelling by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
+    /** "Pedido #22 cancelado." al terminar la cancelación. */
+    var cancelledNotice by remember { mutableStateOf<String?>(null) }
     var response by remember(order.id) { mutableStateOf(order.response) }
     var linkedClient by remember(order.id) { mutableStateOf<Client?>(null) }
     var linkedBranch by remember(order.id) { mutableStateOf<Branch?>(null) }
@@ -80,7 +93,8 @@ fun OrderDetailScreen(
         linkedClient = embeddedClient
         linkedBranch = null
         // Un cliente no consulta el catálogo de clientes; usa los datos de su sesión.
-        if (ownClient == null && clientId != null && delivery == null &&
+        if (ownClient == null && clientId != null &&
+            (delivery?.clientName.isNullOrBlank() || delivery?.phone.isNullOrBlank()) &&
             (embeddedClient?.name.isNullOrBlank() || embeddedClient.phone.isBlank())
         ) {
             val clientsResult = repository.getClients()
@@ -91,10 +105,10 @@ fun OrderDetailScreen(
             }
         }
         val branchId = detail.branchId
-        if (branchId != null && delivery?.address.isNullOrBlank()) {
+        if (branchId != null && (delivery?.address.isNullOrBlank() || delivery?.branchName.isNullOrBlank())) {
             val branch = linkedClient?.branches?.firstOrNull { it.id == branchId && it.clientId == clientId }
             linkedBranch = branch
-            if (clientId != null && branch?.address.isNullOrBlank()) {
+            if (clientId != null && (branch?.address.isNullOrBlank() || branch?.name.isNullOrBlank())) {
                 val branchesResult = repository.getBranches(clientId)
                 linkedBranch = branchesResult.getOrNull()?.firstOrNull {
                     it.id == branchId && it.clientId == clientId
@@ -113,7 +127,8 @@ fun OrderDetailScreen(
     val clientName = delivery?.clientName?.takeIf { it.isNotBlank() }
         ?: linkedClient?.name?.takeIf { it.isNotBlank() }
         ?: summary.client
-    val phone = delivery?.phone ?: linkedClient?.phone
+    val phone = delivery?.phone?.takeIf { it.isNotBlank() }
+        ?: linkedClient?.phone?.takeIf { it.isNotBlank() } ?: linkedBranch?.phone
     val branchName = delivery?.branchName?.takeIf { it.isNotBlank() } ?: linkedBranch?.name
     val address = delivery?.address?.takeIf { it.isNotBlank() } ?: linkedBranch?.address
     val isPickup = delivery?.method == "Recolección"
@@ -131,7 +146,7 @@ fun OrderDetailScreen(
                 title = "Pedido ${order.number}",
                 onBack = onNavigateBack
             ) {
-                // El estado lo cambia almacén/reparto en la API; aquí solo se vuelve a consultar.
+                // Consulta el estado y las fechas guardadas en la API.
                 HeaderIconAction(Icons.Outlined.Refresh, "Actualizar estado", enabled = !isLoading) { reloadKey++ }
             }
         }
@@ -185,7 +200,9 @@ fun OrderDetailScreen(
                         Spacer(Modifier.height(14.dp))
                         OrderStatusProgress(response?.orderStatus)
                         Spacer(Modifier.height(14.dp))
-                        delivery?.clientType?.let { Text(it, color = Gray, fontSize = 13.sp) }
+                        val clientType = delivery?.clientType?.takeIf { it.isNotBlank() }
+                            ?: if ((response?.clientId ?: response?.client?.id ?: 0) > 0) "Cliente registrado" else null
+                        clientType?.let { Text(it, color = Gray, fontSize = 13.sp) }
                         Spacer(Modifier.height(8.dp))
                         OrderDetailField("Celular", phone)
                         Spacer(modifier = Modifier.height(16.dp))
@@ -212,10 +229,13 @@ fun OrderDetailScreen(
                         onDismissRequest = { if (!isCancelling) showCancelDialog = false },
                         title = { Text("Cancelar pedido") },
                         text = {
-                            Text(
-                                "El pedido ${order.number} pasará a Cancelado y ya no se surtirá. " +
-                                    "Se conserva en el historial y no se puede reactivar desde la app."
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                if (response?.orderStatus == OrderStatus.Supplied) {
+                                    // RF-PED-03: advierte sin bloquear.
+                                    Text(SUPPLIED_CANCEL_WARNING, color = Color(0xFFB45309), fontWeight = FontWeight.SemiBold)
+                                }
+                                Text(cancelConfirmationText(order.number))
+                            }
                         },
                         confirmButton = {
                             TextButton(
@@ -228,6 +248,7 @@ fun OrderDetailScreen(
                                             onSuccess = { updated ->
                                                 response = updated ?: current.copy(status = OrderStatus.Cancelled.code)
                                                 showCancelDialog = false
+                                                cancelledNotice = cancelledMessage(order.number)
                                                 reloadKey++
                                                 onCancelled()
                                             },
@@ -248,6 +269,11 @@ fun OrderDetailScreen(
                         TextButton(onClick = { error = null }) { Text("Aceptar") }
                     })
                 }
+                cancelledNotice?.let {
+                    AlertDialog(onDismissRequest = { cancelledNotice = null }, text = { Text(it) }, confirmButton = {
+                        TextButton(onClick = { cancelledNotice = null }) { Text("Aceptar") }
+                    })
+                }
             }
 
             item {
@@ -259,10 +285,17 @@ fun OrderDetailScreen(
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("ENTREGA Y OBSERVACIONES", color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        OrderDetailField("Fecha de entrega", formatOrderDate(response?.date))
+                        OrderDetailField("Fecha de creación", formatOrderDate(response?.date))
+                        OrderDetailField("Fecha de entrega", formatOrderDate(response?.deliveryDate), "Pendiente de entrega")
+                        OrderDetailField("Método de pago", paymentMethodLabel(response?.paymentMethod))
                         OrderDetailField("Método de entrega", deliveryMethod)
                         if (isPickup) {
-                            OrderDetailField("Punto de recolección", "Congeladora Global Foods México")
+                            OrderAddressField(PickupLocation.description, label = "Punto de recolección") {
+                                mapError = null
+                                if (!openAddress(PickupLocation.coordinates)) {
+                                    mapError = "No se pudo abrir el punto de recolección. Revisa las aplicaciones de mapas o el navegador."
+                                }
+                            }
                         } else {
                             if (response?.branchId != null || !branchName.isNullOrBlank()) {
                                 OrderDetailField("Sucursal", branchName)
@@ -273,15 +306,14 @@ fun OrderDetailScreen(
                                     mapError = "No se pudo abrir la dirección. Revisa las aplicaciones de mapas o el navegador."
                                 }
                             }
-                            mapError?.let { message ->
-                                Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-                            }
+                        }
+                        mapError?.let { message ->
+                            Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
                         }
                         delivery?.references?.takeIf { it.isNotBlank() }?.let {
                             OrderDetailField("Referencias", it)
                         }
                         OrderDetailField("Observaciones", observations.notes, "Sin observaciones")
-                        OrderDetailField("Costo de envío", delivery?.shippingCost?.let { "$$it" })
                     }
                 }
             }
@@ -352,12 +384,23 @@ fun OrderDetailScreen(
                         )
                     }
                 }
-                if (sessionRol.canCancelOrders && response?.orderStatus?.isCancellable == true) {
-                    TextButton(
-                        onClick = { showCancelDialog = true },
-                        enabled = !isLoading && !isCancelling,
-                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
-                    ) { Text("Cancelar pedido") }
+                val status = response?.orderStatus
+                if (sessionRol.canCancelOrders && status != null) {
+                    if (status.isCancellable) {
+                        TextButton(
+                            onClick = { showCancelDialog = true },
+                            enabled = !isLoading && !isCancelling,
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB91C1C))
+                        ) { Text("Cancelar pedido") }
+                    } else if (status != OrderStatus.Cancelled) {
+                        // RF-PED-03: En reparto o Entregado ya no se cancela; se explica en lugar del botón.
+                        Text(
+                            status.cancelBlockedMessage,
+                            color = Gray,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
                 }
             }
         }
@@ -365,7 +408,7 @@ fun OrderDetailScreen(
 }
 
 @Composable
-private fun OrderAddressField(address: String?, onOpenAddress: (String) -> Unit) {
+private fun OrderAddressField(address: String?, label: String = "Dirección de entrega", onOpenAddress: (String) -> Unit) {
     val destination = address?.trim().orEmpty()
     Column(
         modifier = Modifier
@@ -379,7 +422,7 @@ private fun OrderAddressField(address: String?, onOpenAddress: (String) -> Unit)
             )
             .padding(vertical = 4.dp)
     ) {
-        Text("Dirección de entrega", color = Gray, fontSize = 12.sp)
+        Text(label, color = Gray, fontSize = 12.sp)
         if (destination.isEmpty()) {
             Text("Sin dato registrado", color = Navy, fontSize = 14.sp)
         } else {

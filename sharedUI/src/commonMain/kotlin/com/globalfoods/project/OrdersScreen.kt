@@ -16,17 +16,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,21 +43,27 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderStatus
+import com.globalfoods.project.sharedlogic.network.orders.orderStatus
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
+import kotlinx.coroutines.launch
 
-/** Ordena del pedido más reciente al más antiguo (por fecha de entrega y luego por número). */
+/** Ordena del pedido más reciente al más antiguo (por fecha de creación y luego por número). */
 internal fun sortOrders(orders: List<Order>): List<Order> =
     orders.sortedWith(compareByDescending<Order> { it.response?.date ?: 0 }.thenByDescending { it.id })
 
@@ -76,27 +91,35 @@ internal fun searchOrders(orders: List<Order>, query: String): List<Order> {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrdersScreen(
     refreshKey: Int = 0,
     onOrderSelected: (Order) -> Unit,
-    onTabSelected: (MainTab) -> Unit
+    onTabSelected: (MainTab) -> Unit,
+    /** Lo guarda App para conservar la posición al volver del detalle de un pedido. */
+    listState: LazyListState = rememberLazyListState(),
+    /** Últimos pedidos cargados: se muestran al volver mientras se actualizan. */
+    cache: ListsCache = remember { ListsCache() }
 ) {
     val orderRepository = remember { OrderRepository() }
-    var orders by remember { mutableStateOf<List<Order>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var orders by remember { mutableStateOf(cache.orders.orEmpty()) }
+    var isLoading by remember { mutableStateOf(cache.orders == null) }
     var error by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
     // Se conservan al ir al detalle y regresar.
     var view by rememberSaveable { mutableStateOf(OrdersView.Active) }
     var query by rememberSaveable { mutableStateOf("") }
+    var paymentOrder by remember { mutableStateOf<Order?>(null) }
 
     LaunchedEffect(refreshKey, reloadKey) {
         isLoading = true
         error = null
         loadOrders(
             orderRepository,
-            onOrders = { orders = sortOrders(it) },
+            onOrders = { loaded -> orders = sortOrders(loaded).also { cache.orders = it } },
             onError = { error = it }
         )
         isLoading = false
@@ -107,69 +130,105 @@ fun OrdersScreen(
 
     Scaffold(
         containerColor = Background,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             ScreenHeader(eyebrow = "PANEL DE CONTROL", title = "PEDIDOS") {
-                // Los estados los actualiza almacén/reparto en la API; aquí solo se vuelven a consultar.
+                // Refresca las etapas del almacén y las entregas confirmadas desde el móvil.
                 HeaderIconAction(Icons.Outlined.Refresh, "Actualizar pedidos", enabled = !isLoading) { reloadKey++ }
             }
         },
         bottomBar = { DashboardNavigation(MainTab.Pedidos, onTabSelected) }
     ) { insets ->
-        Box(Modifier.fillMaxSize().padding(insets)) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 520.dp)
-                    .align(Alignment.TopCenter)
-                    .padding(horizontal = DashboardHorizontalPadding),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+        Column(Modifier.fillMaxSize().padding(insets)) {
+            // Búsqueda y pestañas fijas; solo la lista se desplaza.
+            PinnedTop(listState) {
+                SearchField(query = query, onQueryChange = { query = it })
+                ViewTabs(orders = searched, selected = view, onSelected = { view = it })
+            }
+            // Deslizar hacia abajo vuelve a consultar los pedidos.
+            PullToRefreshBox(
+                isRefreshing = isLoading && orders.isNotEmpty(),
+                onRefresh = { reloadKey++ },
+                modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
-                item {
-                    Spacer(Modifier.height(6.dp))
-                    SearchField(query = query, onQueryChange = { query = it })
-                }
-                item {
-                    ViewTabs(orders = searched, selected = view, onSelected = { view = it })
-                }
-                error?.let { message ->
-                    item {
-                        Column {
-                            Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-                            TextButton(onClick = { reloadKey++ }) { Text("Reintentar") }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 520.dp)
+                        .align(Alignment.TopCenter)
+                        .padding(horizontal = DashboardHorizontalPadding),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item { Spacer(Modifier.height(2.dp)) }
+                    error?.let { message ->
+                        item {
+                            Column {
+                                Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                                TextButton(onClick = { reloadKey++ }) { Text("Reintentar") }
+                            }
                         }
                     }
-                }
-                when {
-                    isLoading && orders.isEmpty() -> item {
-                        Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Green)
+                    when {
+                        isLoading && orders.isEmpty() -> item {
+                            Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Green)
+                            }
+                        }
+                        visible.isEmpty() && error == null -> item {
+                            Text(
+                                when {
+                                    orders.isEmpty() -> "Todavía no hay pedidos registrados."
+                                    query.isNotBlank() -> "No hay pedidos que coincidan con la búsqueda."
+                                    else -> "No hay pedidos ${view.label.lowercase()}."
+                                },
+                                color = Gray,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
+                            )
+                        }
+                        else -> items(visible, key = { it.id }) { order ->
+                            OrderCard(
+                                order = order,
+                                onClick = { onOrderSelected(order) },
+                                onRegisterPayment = if (sessionRol.canRegisterPayment && order.response?.orderStatus?.acceptsPayment == true) {
+                                    { paymentOrder = order }
+                                } else null
+                            )
                         }
                     }
-                    visible.isEmpty() && error == null -> item {
-                        Text(
-                            when {
-                                orders.isEmpty() -> "Todavía no hay pedidos registrados."
-                                query.isNotBlank() -> "No hay pedidos que coincidan con la búsqueda."
-                                else -> "No hay pedidos ${view.label.lowercase()}."
-                            },
-                            color = Gray,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
-                        )
-                    }
-                    else -> items(visible, key = { it.id }) { order ->
-                        OrderCard(order, onClick = { onOrderSelected(order) })
-                    }
+                    item { Spacer(Modifier.height(12.dp)) }
                 }
-                item { Spacer(Modifier.height(12.dp)) }
             }
         }
+    }
+
+    paymentOrder?.let { order ->
+        RegisterPaymentDialog(
+            order = order,
+            onDismissRequest = { paymentOrder = null },
+            onConfirmed = { updated ->
+                val clients = orders.mapNotNull { it.response?.client }.associateBy { it.id }
+                orders = sortOrders(orders.map { if (it.id == updated.id) toOrder(updated, clients) else it })
+                paymentOrder = null
+                reloadKey++
+                if (updated.orderStatus == OrderStatus.Delivered) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            message = "Pedido entregado exitosamente",
+                            duration = SnackbarDuration.Short
+                        )
+                    }
+                }
+            }
+        )
     }
 }
 
 @Composable
 internal fun SearchField(query: String, onQueryChange: (String) -> Unit, placeholder: String = "Buscar pedido") {
+    val focusManager = LocalFocusManager.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -189,6 +248,9 @@ internal fun SearchField(query: String, onQueryChange: (String) -> Unit, placeho
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
+                // La tecla del teclado dice "Buscar" y lo cierra (la búsqueda ya se aplica al escribir).
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                 textStyle = TextStyle(color = Navy, fontSize = 14.sp),
                 cursorBrush = SolidColor(Navy),
                 modifier = Modifier.fillMaxWidth()

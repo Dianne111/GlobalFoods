@@ -1,16 +1,19 @@
 package com.globalfoods.project
 
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.globalfoods.project.sharedlogic.network.auth.AuthRepository
 import com.globalfoods.project.sharedlogic.network.auth.UserRole
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
+import kotlinx.coroutines.launch
 
 @Composable
 fun App() {
@@ -26,15 +29,34 @@ fun App() {
         var pantallaLista by remember { mutableStateOf("Dashboard") }
         // Pedido anterior que se usa como base en "Repetir último pedido"
         var pedidoBase by remember { mutableStateOf<OrderResponse?>(null) }
-        // Cliente abierto desde la pestaña Clientes (administrador/empleado)
+        // Cliente abierto desde la pestaña Clientes (administrador/vendedor)
         var clienteSeleccionado by remember { mutableStateOf<AdminClient?>(null) }
+        // Posición de las listas: se conserva al ir a un detalle y regresar; se reinicia al cerrar sesión.
+        var sesion by remember { mutableStateOf(0) }
+        val inicioListState = remember(sesion) { LazyListState() }
+        val pedidosListState = remember(sesion) { LazyListState() }
+        val clientesListState = remember(sesion) { LazyListState() }
+        val listas = remember(sesion) { ListsCache() }
 
+        val scope = rememberCoroutineScope()
         val abrirPestana: (MainTab) -> Unit = { tab ->
-            when (tab) {
-                MainTab.Inicio -> pantallaActual = "Dashboard"
-                MainTab.Pedidos -> pantallaActual = "Pedidos"
-                MainTab.Clientes -> pantallaActual = "Clientes"
-                MainTab.Sucursales -> pantallaActual = "Sucursales"
+            val destino = when (tab) {
+                MainTab.Inicio -> "Dashboard"
+                MainTab.Pedidos -> "Pedidos"
+                MainTab.Clientes -> "Clientes"
+                MainTab.Sucursales -> "Sucursales"
+            }
+            if (destino != pantallaActual) {
+                pantallaActual = destino
+            } else {
+                // Tocar la pestaña en la que ya estás regresa al inicio de su lista.
+                val lista = when (destino) {
+                    "Dashboard" -> inicioListState.takeIf { sessionRol != UserRole.Client }
+                    "Pedidos" -> pedidosListState
+                    "Clientes" -> clientesListState
+                    else -> null
+                }
+                lista?.let { scope.launch { it.animateScrollToItem(0) } }
             }
         }
         val cerrarSesion: () -> Unit = {
@@ -45,6 +67,7 @@ fun App() {
             pedidoBase = null
             clienteSeleccionado = null
             pantallaLista = "Dashboard"
+            sesion++
             pantallaActual = "Login"
         }
         val abrirDetalle: (Order, String) -> Unit = { order, origen ->
@@ -52,6 +75,16 @@ fun App() {
             pantallaLista = origen
             pantallaActual = "Detalles"
         }
+
+        // Botón "atrás" del sistema: regresa como la flecha de cada pantalla. En Inicio y en el login
+        // cierra la app (comportamiento normal de Android); Nuevo/Editar pedido lo atienden ellas mismas.
+        val atras: (() -> Unit)? = when (pantallaActual) {
+            "Pedidos", "Clientes", "Sucursales" -> { { pantallaActual = "Dashboard" } }
+            "Detalles" -> { { pantallaActual = pantallaLista } }
+            "DetalleCliente" -> { { pantallaActual = "Clientes" } }
+            else -> null
+        }
+        PlatformBackHandler(enabled = atras != null) { atras?.invoke() }
 
         when (pantallaActual) {
             "Splash" -> {
@@ -92,7 +125,9 @@ fun App() {
                             pantallaActual = "NuevoPedido"
                         },
                         onLogout = cerrarSesion,
-                        onTabSelected = abrirPestana
+                        onTabSelected = abrirPestana,
+                        listState = inicioListState,
+                        cache = listas
                     )
                 }
             }
@@ -106,7 +141,9 @@ fun App() {
                         clienteSeleccionado = cliente
                         pantallaActual = "DetalleCliente"
                     },
-                    onTabSelected = abrirPestana
+                    onTabSelected = abrirPestana,
+                    listState = clientesListState,
+                    cache = listas
                 )
             }
             "DetalleCliente" -> {
@@ -131,7 +168,9 @@ fun App() {
                 OrdersScreen(
                     refreshKey = refreshDashboard,
                     onOrderSelected = { order -> abrirDetalle(order, "Pedidos") },
-                    onTabSelected = abrirPestana
+                    onTabSelected = abrirPestana,
+                    listState = pedidosListState,
+                    cache = listas
                 )
             }
             "NuevoPedido" -> {

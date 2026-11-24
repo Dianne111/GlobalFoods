@@ -14,7 +14,7 @@ data class LoginResponse(
     val accessToken: String,
     val expiresIn: Int? = null,
     val nombre: String,
-    /** Rol del usuario: Administrador, Empleado, Reporte o Cliente. */
+    /** Rol del usuario: Administrador, Vendedor (o Empleado) o Cliente. */
     val tipoUsuario: String? = null,
     /**
      * Cliente al que pertenece el usuario (solo para el rol Cliente).

@@ -13,7 +13,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -24,6 +28,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.clients.ClientRepository
+import com.globalfoods.project.sharedlogic.network.core.ApiConflictException
 import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
@@ -79,11 +86,11 @@ internal fun sortClients(clients: List<AdminClient>): List<AdminClient> =
  * Mientras tenga alguno no se le puede dar de baja.
  */
 internal fun pendingDeliveryOrders(orders: List<OrderResponse>, clientId: Int): List<OrderResponse> =
-    orders.filter { (it.clientId ?: it.client?.id) == clientId && it.orderStatus?.isCancellable == true }
+    orders.filter { (it.clientId ?: it.client?.id) == clientId && it.orderStatus?.isInProcess == true }
 
 /** Pedidos dirigidos a la sucursal [branchId] que todavía no se entregan; impiden darla de baja. */
 internal fun pendingBranchOrders(orders: List<OrderResponse>, branchId: Int): List<OrderResponse> =
-    orders.filter { it.branchId == branchId && it.orderStatus?.isCancellable == true }
+    orders.filter { it.branchId == branchId && it.orderStatus?.isInProcess == true }
 
 /**
  * "tiene 2 pedidos en proceso (#10, #11). Podrá darse de baja cuando esos pedidos se entreguen
@@ -107,35 +114,46 @@ internal fun pendingOrdersMessage(clientName: String, pending: List<OrderRespons
 internal fun pendingBranchOrdersMessage(branchName: String, pending: List<OrderResponse>): String =
     "La sucursal \"${branchName.ifBlank { "sin nombre" }}\" ${pendingOrdersSummary(pending)}"
 
+private const val IN_PROCESS_SUFFIX = "tiene pedidos en proceso. Podrá darse de baja cuando esos pedidos se entreguen o se cancelen."
+
+/**
+ * Aviso cuando la API rechaza la baja del cliente (409) sin decir qué pedidos son, por ejemplo
+ * porque entró un pedido después de que la pantalla cargó la lista.
+ */
+internal fun clientInProcessMessage(clientName: String): String =
+    "\"${clientName.ifBlank { "Este cliente" }}\" $IN_PROCESS_SUFFIX"
+
+/** Igual que [clientInProcessMessage], para la baja de una sucursal. */
+internal fun branchInProcessMessage(branchName: String): String =
+    "La sucursal \"${branchName.ifBlank { "sin nombre" }}\" $IN_PROCESS_SUFFIX"
+
 /** La baja no se hizo porque hay pedidos pendientes; su mensaje es el texto del aviso. */
 internal class PendingOrdersException(message: String) : Exception(message)
 
 /**
- * Vuelve a consultar los pedidos (por si entró uno mientras la pantalla estaba abierta) y da de baja
- * la sucursal solo si no tiene pedidos pendientes. Si los tiene, falla con [PendingOrdersException];
- * si no se pueden consultar, tampoco la da de baja.
+ * Da de baja la sucursal. La API revisa los pedidos pendientes y, si los hay, responde 409:
+ * en ese caso falla con [PendingOrdersException] y el texto del aviso (CU-22, A1).
  */
-internal suspend fun deactivateBranchIfNoPendingOrders(repository: OrderRepository, branch: Branch): Result<Unit> {
-    val orders = repository.getOrders().getOrElse {
-        return Result.failure(
-            Exception("No se pudo verificar si la sucursal tiene pedidos pendientes, así que no se dio de baja. ${it.message.orEmpty()}".trim())
-        )
+internal suspend fun deactivateBranchIfNoPendingOrders(repository: OrderRepository, branch: Branch): Result<Unit> =
+    repository.setBranchActive(branch, active = false).recoverCatching { error ->
+        throw if (error is ApiConflictException) PendingOrdersException(branchInProcessMessage(branch.name)) else error
     }
-    val pending = pendingBranchOrders(orders, branch.id)
-    if (pending.isNotEmpty()) return Result.failure(PendingOrdersException(pendingBranchOrdersMessage(branch.name, pending)))
-    return repository.setBranchActive(branch, active = false)
-}
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClientsScreen(
     refreshKey: Int = 0,
     onClientSelected: (AdminClient) -> Unit,
-    onTabSelected: (MainTab) -> Unit
+    onTabSelected: (MainTab) -> Unit,
+    /** Lo guarda App para conservar la posición al volver del detalle de un cliente. */
+    listState: LazyListState = rememberLazyListState(),
+    /** Últimos clientes cargados: se muestran al volver mientras se actualizan. */
+    cache: ListsCache = remember { ListsCache() }
 ) {
     val repository = remember { ClientRepository() }
     val scope = rememberCoroutineScope()
-    var clients by remember { mutableStateOf<List<AdminClient>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var clients by remember { mutableStateOf(cache.clients.orEmpty()) }
+    var isLoading by remember { mutableStateOf(cache.clients == null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -148,7 +166,7 @@ fun ClientsScreen(
         isLoading = true
         loadError = null
         repository.getClients().fold(
-            onSuccess = { clients = sortClients(it) },
+            onSuccess = { loaded -> clients = sortClients(loaded).also { cache.clients = it } },
             onFailure = { loadError = it.message }
         )
         isLoading = false
@@ -166,60 +184,67 @@ fun ClientsScreen(
         },
         bottomBar = { DashboardNavigation(MainTab.Clientes, onTabSelected) }
     ) { insets ->
-        Box(Modifier.fillMaxSize().padding(insets)) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 520.dp)
-                    .align(Alignment.TopCenter)
-                    .padding(horizontal = DashboardHorizontalPadding),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+        Column(Modifier.fillMaxSize().padding(insets)) {
+            // Alta, búsqueda y pestañas fijas; solo la lista se desplaza.
+            PinnedTop(listState) {
+                PrimaryAction("+  Nuevo cliente") { creating = true }
+                SearchField(query, { query = it }, placeholder = "Buscar cliente")
+                SegmentedTabs(
+                    options = ClientsView.entries,
+                    selected = view,
+                    label = { option -> "${option.label} · ${searched.count { it.isActive == (option == ClientsView.Active) }}" },
+                    onSelected = { view = it }
+                )
+            }
+            // Deslizar hacia abajo vuelve a consultar los clientes.
+            PullToRefreshBox(
+                isRefreshing = isLoading && clients.isNotEmpty(),
+                onRefresh = { reloadKey++ },
+                modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
-                item {
-                    Spacer(Modifier.height(6.dp))
-                    PrimaryAction("+  Nuevo cliente") { creating = true }
-                }
-                item { SearchField(query, { query = it }, placeholder = "Buscar cliente") }
-                item {
-                    SegmentedTabs(
-                        options = ClientsView.entries,
-                        selected = view,
-                        label = { option -> "${option.label} · ${searched.count { it.isActive == (option == ClientsView.Active) }}" },
-                        onSelected = { view = it }
-                    )
-                }
-                loadError?.let { message ->
-                    item {
-                        Column {
-                            Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-                            TextButton(onClick = { reloadKey++ }) { Text("Reintentar") }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 520.dp)
+                        .align(Alignment.TopCenter)
+                        .padding(horizontal = DashboardHorizontalPadding),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item { Spacer(Modifier.height(2.dp)) }
+                    loadError?.let { message ->
+                        item {
+                            Column {
+                                Text(message, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                                TextButton(onClick = { reloadKey++ }) { Text("Reintentar") }
+                            }
                         }
                     }
-                }
-                when {
-                    isLoading && clients.isEmpty() -> item {
-                        Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Green)
+                    when {
+                        isLoading && clients.isEmpty() -> item {
+                            Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Green)
+                            }
+                        }
+                        visible.isEmpty() && loadError == null -> item {
+                            Text(
+                                when {
+                                    clients.isEmpty() -> "Todavía no hay clientes registrados."
+                                    query.isNotBlank() -> "No hay clientes que coincidan con la búsqueda."
+                                    else -> "No hay clientes ${view.label.lowercase()}."
+                                },
+                                color = Gray,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
+                            )
+                        }
+                        else -> items(visible, key = { it.id }) { client ->
+                            ClientCard(client, onClick = { onClientSelected(client) })
                         }
                     }
-                    visible.isEmpty() && loadError == null -> item {
-                        Text(
-                            when {
-                                clients.isEmpty() -> "Todavía no hay clientes registrados."
-                                query.isNotBlank() -> "No hay clientes que coincidan con la búsqueda."
-                                else -> "No hay clientes ${view.label.lowercase()}."
-                            },
-                            color = Gray,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
-                        )
-                    }
-                    else -> items(visible, key = { it.id }) { client ->
-                        ClientCard(client, onClick = { onClientSelected(client) })
-                    }
+                    item { Spacer(Modifier.height(12.dp)) }
                 }
-                item { Spacer(Modifier.height(12.dp)) }
             }
         }
     }
@@ -295,6 +320,9 @@ private fun ClientCard(client: AdminClient, onClick: () -> Unit) {
 /**
  * Alta ([client] null) o edición de un cliente. Al editar, la contraseña es opcional:
  * si se deja vacía se conserva la actual. La baja y la reactivación se hacen desde el detalle.
+ *
+ * Valida con las reglas de RF-CLI-02/03. Los errores se marcan en rojo bajo cada campo después
+ * del primer intento de guardar, y desaparecen en cuanto el dato se corrige.
  */
 @Composable
 internal fun ClientDialog(
@@ -304,40 +332,52 @@ internal fun ClientDialog(
     onSave: (name: String, phone: String, user: String, password: String) -> Unit
 ) {
     var name by remember(client) { mutableStateOf(client?.name.orEmpty()) }
-    var phone by remember(client) { mutableStateOf(client?.phone.orEmpty()) }
+    var phone by remember(client) { mutableStateOf(phoneInput(client?.phone.orEmpty())) }
     var user by remember(client) { mutableStateOf(client?.user.orEmpty()) }
     var password by remember(client) { mutableStateOf("") }
     var showPassword by remember(client) { mutableStateOf(false) }
+    var submitted by remember(client) { mutableStateOf(false) }
     val isNew = client == null
-    val valid = name.isNotBlank() && user.isNotBlank() && (!isNew || password.length >= 4)
+    val errors = validateClientForm(name, phone, user, password, originalUser = client?.user)
+    val shown = if (submitted) errors else ClientFormErrors()
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (isNew) "Nuevo cliente" else "Editar cliente", color = Navy, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Nombre o razón social") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                ValidatedTextField(
+                    name,
+                    { name = it.take(MAX_CLIENT_NAME) },
+                    label = "Nombre o razón social",
+                    error = shown.name,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ValidatedTextField(
                     phone,
-                    { value -> phone = value.filter { it.isDigit() || it in " +-()" }.take(20) },
-                    label = { Text("Celular") },
-                    singleLine = true,
+                    { phone = phoneInput(it) },
+                    label = "Celular (10 dígitos)",
+                    error = shown.phone,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                ValidatedTextField(
                     user,
-                    { value -> user = value.filterNot(Char::isWhitespace) },
-                    label = { Text("Usuario para iniciar sesión") },
-                    singleLine = true,
+                    { value -> user = value.filterNot(Char::isWhitespace).take(MAX_USER) },
+                    label = "Usuario para iniciar sesión",
+                    error = shown.user,
+                    hint = "De 6 a 20 caracteres, sin espacios.".takeIf { isNew },
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                ValidatedTextField(
                     password,
                     { password = it },
-                    label = { Text(if (isNew) "Contraseña (mínimo 4 caracteres)" else "Nueva contraseña (opcional)") },
-                    supportingText = if (isNew) null else ({ Text("Déjala vacía para conservar la actual.") }),
-                    singleLine = true,
+                    label = if (isNew) "Contraseña (mínimo 8 caracteres)" else "Nueva contraseña (opcional)",
+                    error = shown.password,
+                    hint = if (isNew) null else "Déjala vacía para conservar la actual.",
                     visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     trailingIcon = {
@@ -353,7 +393,13 @@ internal fun ClientDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(name, phone, user, password) }, enabled = valid && !saving) {
+            TextButton(
+                onClick = {
+                    submitted = true
+                    if (errors.isValid) onSave(name, phone, user, password)
+                },
+                enabled = !saving
+            ) {
                 Text(if (saving) "Guardando…" else "Guardar")
             }
         },

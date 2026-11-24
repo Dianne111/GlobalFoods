@@ -47,6 +47,7 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation("io.ktor:ktor-client-mock:2.3.9")
         }
     }
 }

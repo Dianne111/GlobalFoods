@@ -13,8 +13,11 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="true"> <!-- Permite hacer peticiones a http:// (sin SSL) para pruebas locales -->
 
+        <!-- configChanges: al girar o cambiar el tamaño, Compose se reacomoda sin recrear la actividad,
+             así no se pierde la pantalla actual ni lo capturado (antes regresaba al inicio). -->
         <activity
             android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode"
             android:name=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

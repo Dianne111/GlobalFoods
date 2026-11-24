@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -14,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +46,7 @@ import com.globalfoods.project.sharedlogic.network.dashboard.ArticuloInventario
 import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
+import com.globalfoods.project.sharedlogic.network.orders.paymentMethodLabel
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 
 internal val Navy = Color(0xFF143D58)
@@ -56,43 +59,51 @@ internal val DashboardHeaderHeight = 123.dp
 private val InventoryHeaderColor = Color(0xFFF8FAFC)
 private val InventoryHeaders = listOf("TALLA", "PRECIO", "MASTER", "STOCK")
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     refreshKey: Int = 0,
     onOrderSelected: (Order) -> Unit = {},
     onNewOrder: () -> Unit = {},
     onLogout: () -> Unit = {},
-    onTabSelected: (MainTab) -> Unit = {}
+    onTabSelected: (MainTab) -> Unit = {},
+    /** Lo guarda App para conservar la posición al volver del detalle de un pedido. */
+    listState: LazyListState = rememberLazyListState(),
+    /** Últimos datos cargados: se muestran al volver mientras se actualizan. */
+    cache: ListsCache = remember { ListsCache() }
 ) {
-    val listState = rememberLazyListState()
 
     val dashboardRepository = remember { DashboardRepository() }
     val orderRepository = remember { OrderRepository() }
 
-    var inventarioList by remember { mutableStateOf<List<ArticuloInventario>>(emptyList()) }
-    var isLoadingInventario by remember { mutableStateOf(true) }
+    var inventarioList by remember { mutableStateOf(cache.inventory.orEmpty()) }
+    var isLoadingInventario by remember { mutableStateOf(cache.inventory == null) }
     var errorMensaje by remember { mutableStateOf<String?>(null) }
-    var orderItems by remember { mutableStateOf<List<Order>>(emptyList()) }
+    var orderItems by remember { mutableStateOf(cache.dashboardOrders.orEmpty()) }
     var orderError by remember { mutableStateOf<String?>(null) }
     var ordersReloadKey by remember { mutableStateOf(0) }
+    // Deslizar hacia abajo vuelve a consultar el inventario y los pedidos.
+    var pullKey by remember { mutableStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(refreshKey) {
+    LaunchedEffect(refreshKey, pullKey) {
         val resultado = dashboardRepository.obtenerInventario()
         isLoadingInventario = false
 
         resultado.fold(
-            onSuccess = { datos -> inventarioList = datos },
+            onSuccess = { datos -> inventarioList = datos; cache.inventory = datos },
             onFailure = { error -> errorMensaje = error.message }
         )
     }
 
-    LaunchedEffect(refreshKey, ordersReloadKey) {
+    LaunchedEffect(refreshKey, ordersReloadKey, pullKey) {
         orderError = null
         loadOrders(
             orderRepository,
-            onOrders = { orderItems = it },
+            onOrders = { orderItems = it; cache.dashboardOrders = it },
             onError = { orderError = it }
         )
+        refreshing = false
     }
 
     Scaffold(
@@ -100,28 +111,33 @@ fun DashboardScreen(
         topBar = { DashboardHeader(onLogout) },
         bottomBar = { DashboardNavigation(MainTab.Inicio, onTabSelected) }
     ) { insets ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(insets)
         ) {
-            Box(
+            // El botón queda fijo arriba; el inventario y los pedidos se desplazan debajo.
+            PinnedTop(listState) {
+                NewOrderButton(onClick = onNewOrder)
+            }
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = { refreshing = true; pullKey++ },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .widthIn(max = 520.dp)
-                    .align(Alignment.Center)
+                    .weight(1f)
             ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
+                        .widthIn(max = 520.dp)
+                        .align(Alignment.TopCenter)
                         .padding(horizontal = DashboardHorizontalPadding),
                     verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
                     item {
-                        Spacer(Modifier.height(16.dp))
-                        NewOrderButton(onClick = onNewOrder)
-                        Spacer(Modifier.height(17.dp))
+                        Spacer(Modifier.height(7.dp))
                         SectionLabel("INVENTARIO")
                         Spacer(Modifier.height(8.dp))
 
@@ -211,15 +227,27 @@ internal suspend fun loadOrders(
                 it.clientId != null && it.client?.name.isNullOrBlank() &&
                     OrderObservations.decode(it.notes).delivery?.clientName.isNullOrBlank()
             }
+            var clientsById = emptyMap<Int, Client>()
             if (needsClients) {
                 orderRepository.getClients().fold(
                     onSuccess = { clients ->
-                        val clientsById = clients.associateBy { it.id }
+                        clientsById = clients.associateBy { it.id }
                         onOrders(response.map { toOrder(it, clientsById) })
                     },
                     onFailure = { onError("No se pudieron cargar los nombres de los clientes.") }
                 )
             }
+            // El formato web no duplica el nombre de la sucursal dentro de Observaciones.
+            val branchNames = mutableMapOf<Int, String>()
+            val clientsWithBranches = response.filter {
+                (it.branchId ?: 0) > 0 && OrderObservations.decode(it.notes).delivery?.branchName.isNullOrBlank()
+            }.mapNotNull { it.clientId ?: it.client?.id }.distinct()
+            for (clientId in clientsWithBranches) {
+                orderRepository.getBranches(clientId).onSuccess { branches ->
+                    branchNames.putAll(branches.associate { it.id to it.name })
+                }
+            }
+            onOrders(response.map { toOrder(it, clientsById, branchNames) })
         },
         onFailure = { onError("No se pudieron cargar los pedidos.") }
     )
@@ -270,7 +298,8 @@ internal fun toOrder(
         items = "${response.lines.size} Items",
         status = statusLabel(response.status),
         statusColor = statusColor(response.status),
-        elapsed = formatOrderDate(response.date)?.let { "Entrega $it" } ?: "Sin fecha",
+        elapsed = formatOrderDate(response.deliveryDate)?.let { "Entrega $it" }
+            ?: formatOrderDate(response.date)?.let { "Creado $it" } ?: "Sin fecha",
         accent = statusColor(response.status),
         totalKg = "${response.totalKg} kg",
         products = response.lines.map { OrderProduct(it.size, it.price, it.quantity, it.subtotal) },
@@ -279,7 +308,9 @@ internal fun toOrder(
         destination = when {
             delivery?.method == "Recolección" -> "Recolección"
             !delivery?.branchName.isNullOrBlank() -> delivery?.branchName.orEmpty()
-            else -> response.branchId?.let(branchNames::get).orEmpty()
+            else -> response.branchId?.let { id ->
+                branchNames[id] ?: client?.branches?.firstOrNull { it.id == id && it.clientId == client.id }?.name
+            }.orEmpty()
         }
     )
 }
@@ -431,9 +462,8 @@ enum class MainTab(val label: String) {
 
 /** Pestañas que ve cada rol. El cliente administra sus sucursales en lugar del catálogo de clientes. */
 internal fun tabsFor(role: UserRole): List<MainTab> = when (role) {
-    UserRole.Administrator, UserRole.Employee -> listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Clientes)
+    UserRole.Administrator, UserRole.Seller -> listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Clientes)
     UserRole.Client -> listOf(MainTab.Inicio, MainTab.Pedidos, MainTab.Sucursales)
-    UserRole.Reports -> listOf(MainTab.Inicio)
 }
 
 private val MainTab.icon
@@ -457,7 +487,7 @@ internal fun DashboardNavigation(
         tabsFor(sessionRol).forEach { tab ->
             NavigationBarItem(
                 selected = tab == selected,
-                onClick = { if (tab != selected) onTabSelected(tab) },
+                onClick = { onTabSelected(tab) },
                 icon = { Icon(tab.icon, tab.label, modifier = Modifier.size(19.dp)) },
                 label = { Text(tab.label, fontSize = 8.sp) }
             )
@@ -466,7 +496,7 @@ internal fun DashboardNavigation(
 }
 
 @Composable
-internal fun OrderCard(order: Order, onClick: () -> Unit) {
+internal fun OrderCard(order: Order, onClick: () -> Unit, onRegisterPayment: (() -> Unit)? = null) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = CardShape,
@@ -499,6 +529,19 @@ internal fun OrderCard(order: Order, onClick: () -> Unit) {
                     Icon(Icons.Outlined.LocalShipping, null, tint = Gray, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(3.dp))
                     Text(order.elapsed, color = Gray, fontSize = 10.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("Pago: ${paymentMethodLabel(order.response?.paymentMethod)}", color = Navy, fontSize = 12.sp)
+                if (onRegisterPayment != null) {
+                    Spacer(Modifier.height(18.dp))
+                    Button(
+                        onClick = onRegisterPayment,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Navy, contentColor = Color.White)
+                    ) {
+                        Text("Registrar pago", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
         }

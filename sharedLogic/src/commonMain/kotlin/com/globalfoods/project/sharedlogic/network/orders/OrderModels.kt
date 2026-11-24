@@ -2,6 +2,9 @@ package com.globalfoods.project.sharedlogic.network.orders
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.JsonNames
 
 @Serializable
 data class Client(
@@ -49,6 +52,7 @@ data class BranchRequest(
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class OrderRequest(
     @SerialName("IdCliente") val clientId: Int?,
     @SerialName("IdSucursal") val branchId: Int?,
@@ -57,7 +61,9 @@ data class OrderRequest(
     @SerialName("Total") val total: Double,
     @SerialName("Estatus") val status: Int,
     @SerialName("Observaciones") val notes: String? = null,
-    @SerialName("lineas") val lines: List<OrderLineRequest>
+    @SerialName("lineas") val lines: List<OrderLineRequest>,
+    @EncodeDefault @SerialName("MetodoPago") val paymentMethod: Int = 0,
+    @EncodeDefault @SerialName("FechaEntrega") val deliveryDate: Int? = null
 )
 
 @Serializable
@@ -80,25 +86,32 @@ data class OrderResponse(
     @SerialName("Estatus") val status: Int = 1,
     @SerialName("Observaciones") val notes: String? = null,
     @SerialName("lineas") val lines: List<OrderLineResponse> = emptyList(),
-    @SerialName("Cliente") val client: Client? = null
+    @SerialName("Cliente") val client: Client? = null,
+    @SerialName("MetodoPago") val paymentMethod: Int? = null,
+    @SerialName("FechaEntrega") val deliveryDate: Int? = null
 )
 
 /** El mismo pedido, sin cambios, pero con Estatus Cancelado (para PUT /api/pedidos/{id}). */
-fun cancellationRequest(order: OrderResponse): OrderRequest = OrderRequest(
-    clientId = order.clientId ?: order.client?.id,
-    branchId = order.branchId,
-    date = order.date,
-    totalKg = order.totalKg,
-    total = order.total,
-    status = OrderStatus.Cancelled.code,
-    notes = order.notes,
-    lines = order.lines.map { OrderLineRequest(it.productCode, it.size, it.quantity, it.price, it.subtotal) }
+fun cancellationRequest(order: OrderResponse): OrderRequest = order.toRequest().copy(status = OrderStatus.Cancelled.code)
+
+fun OrderResponse.toRequest(): OrderRequest = OrderRequest(
+    clientId = clientId ?: client?.id,
+    branchId = branchId,
+    date = date,
+    totalKg = totalKg,
+    total = total,
+    status = status,
+    notes = notes,
+    lines = lines.map { OrderLineRequest(it.productCode, it.size, it.quantity, it.price, it.subtotal) },
+    paymentMethod = paymentMethod ?: 0,
+    deliveryDate = deliveryDate
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class OrderLineResponse(
     @SerialName("Id") val id: Int = 0,
-    @SerialName("CodigoProducto") val productCode: Int = 0,
+    @JsonNames("codigoProducto") @SerialName("CodigoProducto") val productCode: Int = 0,
     @SerialName("Talla") val size: String = "",
     @SerialName("Cantidad") val quantity: Double = 0.0,
     @SerialName("Precio") val price: Double = 0.0,
