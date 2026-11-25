@@ -10,7 +10,7 @@ class TelegramAssistantTest {
     fun opensTheRequestedBotInTelegramWhenAvailable() {
         val attempts = mutableListOf<String>()
         assertTrue(TelegramAssistant.open { uri -> attempts += uri; true })
-        assertEquals(listOf("tg://resolve?domain=GlobalFoodsMexicobot"), attempts)
+        assertEquals(listOf("tg://resolve?domain=GlobalFoodsMexicobot&start=app"), attempts)
     }
 
     @Test
@@ -18,9 +18,9 @@ class TelegramAssistantTest {
         val attempts = mutableListOf<String>()
         assertTrue(TelegramAssistant.open { uri ->
             attempts += uri
-            uri == "https://t.me/GlobalFoodsMexicobot"
+            uri == "https://t.me/GlobalFoodsMexicobot?start=app"
         })
-        assertEquals(listOf("tg://resolve?domain=GlobalFoodsMexicobot", "https://t.me/GlobalFoodsMexicobot"), attempts)
+        assertEquals(listOf("tg://resolve?domain=GlobalFoodsMexicobot&start=app", "https://t.me/GlobalFoodsMexicobot?start=app"), attempts)
     }
 
     @Test
@@ -28,5 +28,6 @@ class TelegramAssistantTest {
         val attempts = mutableListOf<String>()
         assertFalse(TelegramAssistant.open { uri -> attempts += uri; false })
         assertEquals(2, attempts.size)
+        assertTrue(attempts.all { it.endsWith("start=app") })
     }
 }

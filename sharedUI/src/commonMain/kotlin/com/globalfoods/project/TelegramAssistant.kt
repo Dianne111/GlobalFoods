@@ -29,8 +29,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 
 internal object TelegramAssistant {
-    const val webUrl = "https://t.me/GlobalFoodsMexicobot"
-    private const val nativeUrl = "tg://resolve?domain=GlobalFoodsMexicobot"
+    // Valor acordado para esta integración: Telegram ofrece Iniciar y envía /start app al pulsarlo.
+    private const val startParameter = "app"
+    const val webUrl = "https://t.me/GlobalFoodsMexicobot?start=$startParameter"
+    private const val nativeUrl = "tg://resolve?domain=GlobalFoodsMexicobot&start=$startParameter"
     const val openError = "No se pudo abrir Telegram ni el navegador. Inténtalo de nuevo."
 
     // Abre el chat en Telegram; si no está instalado, usa el enlace web del mismo bot.
