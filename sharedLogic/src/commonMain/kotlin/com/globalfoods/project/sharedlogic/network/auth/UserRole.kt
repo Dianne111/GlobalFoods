@@ -17,6 +17,12 @@ enum class UserRole {
     /** Cancelar es una baja lógica (Estatus 5); los pedidos nunca se borran. */
     val canCancelOrders: Boolean get() = this != Client
 
+    /**
+     * Alta, edición y baja de clientes y de sus sucursales: solo personal administrativo
+     * (RN-18, CU-16 a CU-22). El vendedor (asesora) solo los consulta (CU-03).
+     */
+    val canManageClients: Boolean get() = this == Administrator
+
     /** El cliente administra sus propias sucursales desde su pestaña Sucursales. */
     val canManageOwnBranches: Boolean get() = this == Client
 

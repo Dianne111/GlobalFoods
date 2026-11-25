@@ -238,7 +238,9 @@ internal fun BranchCard(
     branch: Branch,
     onEdit: () -> Unit,
     onDeactivate: () -> Unit,
-    onReactivate: () -> Unit
+    onReactivate: () -> Unit,
+    /** false para quien solo consulta (vendedor): sin editar, dar de baja ni reactivar. */
+    editable: Boolean = true
 ) {
     val active = branch.status == 1
     Card(
@@ -270,14 +272,17 @@ internal fun BranchCard(
                     Text("Tel. ${branch.phone}", color = Gray, fontSize = 12.sp)
                 }
             }
-            IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, "Editar sucursal", tint = Gray) }
-            if (active) {
-                IconButton(onClick = onDeactivate) {
-                    Icon(Icons.Outlined.Delete, "Dar de baja la sucursal", tint = Color(0xFFB91C1C))
-                }
-            } else {
-                IconButton(onClick = onReactivate) {
-                    Icon(Icons.Outlined.Restore, "Reactivar sucursal", tint = Green)
+            // Quien solo consulta (vendedor) no ve editar, dar de baja ni reactivar.
+            if (editable) {
+                IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, "Editar sucursal", tint = Gray) }
+                if (active) {
+                    IconButton(onClick = onDeactivate) {
+                        Icon(Icons.Outlined.Delete, "Dar de baja la sucursal", tint = Color(0xFFB91C1C))
+                    }
+                } else {
+                    IconButton(onClick = onReactivate) {
+                        Icon(Icons.Outlined.Restore, "Reactivar sucursal", tint = Green)
+                    }
                 }
             }
         }
