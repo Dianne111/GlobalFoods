@@ -21,7 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -410,17 +409,9 @@ fun NewOrderScreen(
     }
 
     if (showSettings) {
-        AlertDialog(
+        AppSettingsDialog(
             onDismissRequest = { showSettings = false },
-            title = { Text("Configuración", color = Navy, fontWeight = FontWeight.Bold) },
-            text = {
-                TextButton(onClick = onLogout) {
-                    Icon(Icons.Outlined.Logout, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Cerrar sesión")
-                }
-            },
-            confirmButton = {}
+            onLogout = onLogout
         )
     }
 

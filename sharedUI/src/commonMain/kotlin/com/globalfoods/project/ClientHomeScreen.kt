@@ -18,13 +18,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -111,17 +108,9 @@ fun ClientHomeScreen(
     val summary = remember(orders) { clientMonthSummary(orders, currentYearMonth()) }
 
     if (showSettings) {
-        AlertDialog(
+        AppSettingsDialog(
             onDismissRequest = { showSettings = false },
-            title = { Text("Configuración", color = Navy, fontWeight = FontWeight.Bold) },
-            text = {
-                TextButton(onClick = onLogout) {
-                    Icon(Icons.Outlined.Logout, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Cerrar sesión")
-                }
-            },
-            confirmButton = {}
+            onLogout = onLogout
         )
     }
 

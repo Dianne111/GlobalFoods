@@ -381,17 +381,9 @@ private fun DashboardHeader(onLogout: () -> Unit) {
     var showSettings by remember { mutableStateOf(false) }
 
     if (showSettings) {
-        AlertDialog(
+        AppSettingsDialog(
             onDismissRequest = { showSettings = false },
-            title = { Text("Configuración", color = Navy, fontWeight = FontWeight.Bold) },
-            text = {
-                TextButton(onClick = onLogout) {
-                    Icon(Icons.Outlined.Logout, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Cerrar sesión")
-                }
-            },
-            confirmButton = {}
+            onLogout = onLogout
         )
     }
 

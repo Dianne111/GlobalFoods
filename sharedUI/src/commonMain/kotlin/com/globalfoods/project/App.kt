@@ -36,6 +36,8 @@ fun App() {
         var origenEntrega by remember { mutableStateOf("Pedidos") }
         // Aviso que muestra la lista de pedidos al regresar (por ejemplo, tras registrar la entrega).
         var avisoPedidos by remember { mutableStateOf<String?>(null) }
+        // Se abre únicamente después de que la API confirma un pedido nuevo.
+        var mostrarAsistente by remember { mutableStateOf(false) }
         // Posición de las listas: se conserva al ir a un detalle y regresar; se reinicia al cerrar sesión.
         var sesion by remember { mutableStateOf(0) }
         val inicioListState = remember(sesion) { LazyListState() }
@@ -73,6 +75,7 @@ fun App() {
             clienteSeleccionado = null
             pedidoEntrega = null
             avisoPedidos = null
+            mostrarAsistente = false
             pantallaLista = "Dashboard"
             sesion++
             pantallaActual = "Login"
@@ -96,7 +99,9 @@ fun App() {
             "DetalleCliente" -> { { pantallaActual = "Clientes" } }
             else -> null
         }
-        PlatformBackHandler(enabled = atras != null) { atras?.invoke() }
+        PlatformBackHandler(enabled = mostrarAsistente || atras != null) {
+            if (!mostrarAsistente) atras?.invoke()
+        }
 
         when (pantallaActual) {
             "Splash" -> {
@@ -199,6 +204,7 @@ fun App() {
                         pedidoBase = null
                         refreshDashboard++
                         pantallaActual = "Dashboard"
+                        mostrarAsistente = true
                     },
                     onLogout = cerrarSesion
                 )
@@ -274,6 +280,10 @@ fun App() {
                     pantallaActual = "Detalles"
                 }
             }
+        }
+
+        if (mostrarAsistente) {
+            OrderCreatedAssistantDialog(onFinished = { mostrarAsistente = false })
         }
     }
 }
