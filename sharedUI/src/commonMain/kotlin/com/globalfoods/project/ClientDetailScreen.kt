@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.clients.ClientRepository
 import com.globalfoods.project.sharedlogic.network.core.ApiConflictException
@@ -169,7 +170,8 @@ fun ClientDetailScreen(
                                     fontSize = 12.sp
                                 )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // RN-18: solo el personal administrativo edita, da de baja o reactiva clientes.
+                            if (sessionRol.canManageClients) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(
                                     onClick = { editingClient = true },
                                     colors = ButtonDefaults.buttonColors(containerColor = Navy),
@@ -202,9 +204,11 @@ fun ClientDetailScreen(
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         SectionTitle("SUCURSALES (${branches.size})", Modifier.weight(1f))
-                        TextButton(onClick = { editingBranch = Branch(id = 0, clientId = current.id, name = "") }) {
-                            Icon(Icons.Outlined.Add, contentDescription = null)
-                            Text("Agregar")
+                        if (sessionRol.canManageClients) {
+                            TextButton(onClick = { editingBranch = Branch(id = 0, clientId = current.id, name = "") }) {
+                                Icon(Icons.Outlined.Add, contentDescription = null)
+                                Text("Agregar")
+                            }
                         }
                     }
                 }
@@ -220,7 +224,8 @@ fun ClientDetailScreen(
                             if (pending.isEmpty()) branchToDeactivate = branch
                             else blockedNotice = branchBlockedTitle to pendingBranchOrdersMessage(branch.name, pending)
                         },
-                        onReactivate = { runAction { orderRepository.setBranchActive(branch, active = true) } }
+                        onReactivate = { runAction { orderRepository.setBranchActive(branch, active = true) } },
+                        editable = sessionRol.canManageClients
                     )
                 }
 

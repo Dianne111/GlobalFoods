@@ -55,6 +55,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.clients.AdminClient
 import com.globalfoods.project.sharedlogic.network.clients.ClientRepository
 import com.globalfoods.project.sharedlogic.network.core.ApiConflictException
@@ -187,7 +188,10 @@ fun ClientsScreen(
         Column(Modifier.fillMaxSize().padding(insets)) {
             // Alta, búsqueda y pestañas fijas; solo la lista se desplaza.
             PinnedTop(listState) {
-                PrimaryAction("+  Nuevo cliente") { creating = true }
+                // RN-18: solo el personal administrativo da de alta clientes; el vendedor los consulta.
+                if (sessionRol.canManageClients) {
+                    PrimaryAction("+  Nuevo cliente") { creating = true }
+                }
                 SearchField(query, { query = it }, placeholder = "Buscar cliente")
                 SegmentedTabs(
                     options = ClientsView.entries,

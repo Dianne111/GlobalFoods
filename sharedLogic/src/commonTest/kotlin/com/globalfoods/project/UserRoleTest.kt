@@ -33,7 +33,7 @@ class UserRoleTest {
     }
 
     @Test
-    fun sellersAndAdministratorsHaveTheSamePermissionsForNow() {
+    fun sellersAndAdministratorsHandleOrdersTheSameWay() {
         for (role in listOf(UserRole.Administrator, UserRole.Seller)) {
             assertTrue(role.canRegisterPayment)
             assertTrue(role.canSeeInventory)
@@ -41,6 +41,12 @@ class UserRoleTest {
             assertTrue(role.canCancelOrders)
             assertFalse(role.canManageOwnBranches)
         }
+    }
+
+    @Test
+    fun onlyAdministratorsManageClientsAndTheirBranches() {
+        // RN-18 y CU-16 a CU-22: la asesora (vendedor) solo consulta clientes (CU-03).
+        assertEquals(listOf(UserRole.Administrator), UserRole.entries.filter { it.canManageClients })
     }
 
     @Test
