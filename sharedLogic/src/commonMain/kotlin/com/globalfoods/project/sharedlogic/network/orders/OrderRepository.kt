@@ -140,7 +140,16 @@ class OrderRepository internal constructor(private val client: HttpClient) {
         }
     }
 
-    suspend fun registerPayment(id: Int, method: OrderPaymentMethod, date: Int): Result<OrderResponse> = request {
+    /**
+     * [notes] es el texto libre de Observaciones que escribió el vendedor al entregar; null lo deja igual.
+     * Se conserva la modalidad, fecha y dirección que la app y la web guardan al inicio de Observaciones.
+     */
+    suspend fun registerPayment(
+        id: Int,
+        method: OrderPaymentMethod,
+        date: Int,
+        notes: String? = null
+    ): Result<OrderResponse> = request {
         // Se consulta la versión más reciente antes de reenviar el encabezado y las líneas.
         val current = getOrder(id).getOrThrow()
         if (current.orderStatus == OrderStatus.Delivered) {
@@ -150,7 +159,9 @@ class OrderRepository internal constructor(private val client: HttpClient) {
             }
             current
         } else {
-            val body = paymentRequest(current, method, date)
+            val body = paymentRequest(current, method, date).let { request ->
+                if (notes == null) request else request.copy(notes = OrderObservations.replaceNotes(current.notes, notes))
+            }
             updateOrder(id, body).getOrThrow()
             val confirmed = getOrder(id).getOrThrow()
             requireNotNull(confirmed.paymentMethod) {
@@ -171,10 +182,15 @@ class OrderRepository internal constructor(private val client: HttpClient) {
      * Registra la entrega completa con lo que se cobró. Efectivo o tarjeta se guardan como hoy
      * (MetodoPago del pedido); el pago mixto espera la tabla PagoPedidosApp de la API.
      */
-    suspend fun registerDelivery(id: Int, payment: DeliveryPayment, date: Int): Result<OrderResponse> =
+    suspend fun registerDelivery(
+        id: Int,
+        payment: DeliveryPayment,
+        date: Int,
+        notes: String? = null
+    ): Result<OrderResponse> =
         when (payment.type) {
-            PaymentType.Cash -> registerPayment(id, OrderPaymentMethod.Cash, date)
-            PaymentType.Card -> registerPayment(id, OrderPaymentMethod.CardOrTransfer, date)
+            PaymentType.Cash -> registerPayment(id, OrderPaymentMethod.Cash, date, notes)
+            PaymentType.Card -> registerPayment(id, OrderPaymentMethod.CardOrTransfer, date, notes)
             PaymentType.Mixed -> Result.failure(IllegalStateException(MIXED_PAYMENT_PENDING_MESSAGE))
             PaymentType.Pending -> Result.failure(IllegalArgumentException("Escribe cuánto se cobró."))
         }

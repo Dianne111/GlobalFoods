@@ -73,6 +73,47 @@ data class OrderObservations(
             }
         }
 
+        /**
+         * Cambia solo el texto libre de Observaciones (lo que escribió el vendedor) y conserva lo que
+         * la app y la web guardan antes: modalidad, fecha de entrega, dirección y referencias.
+         */
+        fun replaceNotes(value: String?, notes: String): String {
+            val text = value.orEmpty()
+            val clean = notes.trim()
+            val markerIndex = text.lastIndexOf(deliveryMarker)
+            val hasMarker = markerIndex == 0 || (markerIndex > 0 && text[markerIndex - 1] == '\n')
+            if (hasMarker && decode(text).delivery != null) {
+                val tail = text.substring(markerIndex)
+                return if (clean.isEmpty()) tail else "$clean\n$tail"
+            }
+            val prefix = webPrefix(text) ?: return clean
+            return (prefix + listOfNotNull(clean.ifEmpty { null })).joinToString(separator)
+        }
+
+        /** Partes iniciales del formato web (modalidad, fecha, Dir, Ref); null si no es ese formato. */
+        private fun webPrefix(text: String): List<String>? {
+            if (decodeWeb(text) == null) return null
+            val parts = text.trim().split(separator)
+            return parts.take(webPrefixSize(parts))
+        }
+
+        private fun webPrefixSize(parts: List<String>): Int {
+            var index = 2
+            if (parts.firstOrNull() != "A domicilio") return index
+            var address = false
+            var references = false
+            while (index < parts.size) {
+                val part = parts[index]
+                when {
+                    !address && part.startsWith("Dir: ") -> address = true
+                    !references && part.startsWith("Ref: ") -> references = true
+                    else -> break
+                }
+                index++
+            }
+            return index
+        }
+
         private fun decodeWeb(text: String): OrderObservations? {
             val parts = text.trim().split(separator)
             val method = when (parts.firstOrNull()) {

@@ -102,6 +102,26 @@ class OrderPaymentRepositoryTest {
     }
 
     @Test
+    fun theNotesWrittenAtDeliveryReplaceOnlyTheFreeTextOfObservaciones() = runBlocking {
+        val home = "A domicilio · Entrega 21/11/2026 · Dir: Calle 1"
+        val withNotes = original.copy(notes = "$home · Llamar antes")
+        var stored = withNotes
+        var sentNotes: String? = null
+        val client = client(MockEngine { request ->
+            if (request.method == HttpMethod.Put) {
+                val body = Json.decodeFromString<OrderRequest>((request.body as TextContent).text)
+                sentNotes = body.notes
+                stored = withNotes.copy(notes = body.notes, deliveryDate = body.deliveryDate, paymentMethod = body.paymentMethod, status = body.status)
+                respond("", HttpStatusCode.NoContent)
+            } else respond(Json.encodeToString(OrderResponse.serializer(), stored), headers = headers)
+        })
+        try {
+            OrderRepository(client).registerPayment(7, OrderPaymentMethod.Cash, 20261121, notes = "Dejó la mitad en recepción").getOrThrow()
+            assertEquals("$home · Dejó la mitad en recepción", sentNotes)
+        } finally { client.close() }
+    }
+
+    @Test
     fun reportsFailureIfTheApiAcceptsThePutButDoesNotPersistTheFields() = runBlocking {
         val client = client(MockEngine { request ->
             if (request.method == HttpMethod.Put) respond("", HttpStatusCode.NoContent)
