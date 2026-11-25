@@ -78,12 +78,9 @@ internal fun OrderCreatedAssistantDialog(onFinished: () -> Unit) {
     )
 }
 
-/** Mismo acceso al asistente en todos los menús de engranaje de la app. */
+/** Menú de configuración compartido por los encabezados de la app. */
 @Composable
 internal fun AppSettingsDialog(onDismissRequest: () -> Unit, onLogout: () -> Unit) {
-    val openAssistant = rememberTelegramAssistantLauncher()
-    var error by remember { mutableStateOf<String?>(null) }
-
     AlertDialog(
         onDismissRequest = onDismissRequest,
         shape = RoundedCornerShape(24.dp),
@@ -91,24 +88,12 @@ internal fun AppSettingsDialog(onDismissRequest: () -> Unit, onLogout: () -> Uni
         title = { Text("Configuración", color = Navy, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(
-                    onClick = {
-                        if (openAssistant()) onDismissRequest() else error = TelegramAssistant.openError
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Outlined.Chat, contentDescription = null, tint = Navy)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Asistente de Telegram", color = Navy)
-                    Spacer(Modifier.weight(1f))
-                }
                 TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.Logout, contentDescription = null, tint = Navy)
                     Spacer(Modifier.width(8.dp))
                     Text("Cerrar sesión", color = Navy)
                     Spacer(Modifier.weight(1f))
                 }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
             }
         },
         confirmButton = {}
