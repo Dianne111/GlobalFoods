@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.orders.MIXED_PAYMENT_PENDING_MESSAGE
+import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
 import com.globalfoods.project.sharedlogic.network.orders.PaymentType
@@ -94,6 +95,9 @@ internal fun RegisterDeliveryScreen(
     // Foto del comprobante en JPEG; opcional mientras la API no tenga dónde guardarla.
     var receipt by remember(order.id) { mutableStateOf<ByteArray?>(null) }
     var receiptError by remember(order.id) { mutableStateOf<String?>(null) }
+    // Solo el texto libre de Observaciones; la modalidad y la dirección que van antes no se tocan.
+    val originalNotes = remember(order.id) { OrderObservations.decode(response?.notes).notes }
+    var notes by remember(order.id) { mutableStateOf(originalNotes.take(MAX_ORDER_NOTES)) }
     val photoPicker = rememberReceiptPhotoPicker(
         onPhoto = { receipt = it; receiptError = null },
         onError = { receiptError = it }
@@ -229,6 +233,23 @@ internal fun RegisterDeliveryScreen(
                 )
             }
 
+            DeliverySection(sectionModifier) {
+                Text("Observaciones (opcional)", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Agrega o corrige las indicaciones del pedido.", color = Gray, fontSize = 13.sp)
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it.take(MAX_ORDER_NOTES) },
+                    placeholder = { Text("Indicaciones para almacén o reparto (máximo $MAX_ORDER_NOTES caracteres)") },
+                    supportingText = {
+                        Text("${notes.length}/$MAX_ORDER_NOTES", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.End)
+                    },
+                    minLines = 3,
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             Text(
                 "Al confirmar, el pedido quedará Entregado con la fecha de hoy. El pago ya no podrá cambiarse.",
                 color = Gray,
@@ -249,7 +270,9 @@ internal fun RegisterDeliveryScreen(
                     scope.launch {
                         try {
                             val result = withTimeoutOrNull(30_000L) {
-                                repository.registerDelivery(order.id, payment, date)
+                                // Solo se reescriben las observaciones si el vendedor las cambió.
+                                val changedNotes = notes.trim().takeIf { it != originalNotes.trim() }
+                                repository.registerDelivery(order.id, payment, date, changedNotes)
                             } ?: Result.failure(IllegalStateException(
                                 "Se agotó el tiempo para confirmar el guardado. Actualiza el pedido antes de reintentar."
                             ))

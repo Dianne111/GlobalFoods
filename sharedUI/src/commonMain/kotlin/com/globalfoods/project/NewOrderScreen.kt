@@ -839,12 +839,14 @@ private fun DetailsStep(
             DateField(form.deliveryDate, onClick = onDatePicker)
             shown.date?.let { FieldError(it) }
             FormField(
-                "Observaciones",
+                "Observaciones (opcional)",
                 form.notes,
                 { onFormChange(form.copy(notes = if (isClient) it else it.take(MAX_ORDER_NOTES))) },
                 singleLine = false,
                 error = shown.notes,
-                hint = if (isClient) null else "${form.notes.length}/$MAX_ORDER_NOTES"
+                hint = if (isClient) null else "${form.notes.length}/$MAX_ORDER_NOTES",
+                // Mismo texto de ayuda que el formulario de la app web.
+                placeholder = "Indicaciones para almacén o reparto (máximo $MAX_ORDER_NOTES caracteres)"
             )
             val hasProducts = form.quantities.values.any { it.toDoubleOrNull()?.let { value -> value > 0 } == true }
             val hasClient = (form.clientId ?: 0) > 0
@@ -1262,13 +1264,16 @@ private fun FormField(
     /** Mensaje en rojo debajo del campo (borde y etiqueta en rojo). */
     error: String? = null,
     /** Ayuda en gris debajo del campo cuando no hay error. */
-    hint: String? = null
+    hint: String? = null,
+    /** Texto en gris dentro del campo mientras está vacío. */
+    placeholder: String? = null
 ) {
     val supporting = error ?: hint
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
+        placeholder = placeholder?.let { { Text(it) } },
         isError = error != null,
         supportingText = supporting?.let { { Text(it) } },
         modifier = Modifier.fillMaxWidth(),
