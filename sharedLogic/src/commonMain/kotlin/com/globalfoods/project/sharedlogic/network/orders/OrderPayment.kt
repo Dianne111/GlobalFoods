@@ -12,6 +12,7 @@ enum class OrderPaymentMethod(val code: Int, val label: String) {
 fun paymentMethodLabel(code: Int?): String = when (code) {
     0 -> "Pendiente"
     null -> "Sin información"
+    PaymentType.Mixed.code -> PaymentType.Mixed.label
     else -> OrderPaymentMethod.fromCode(code)?.label ?: "Método $code"
 }
 

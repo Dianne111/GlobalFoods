@@ -167,6 +167,18 @@ class OrderRepository internal constructor(private val client: HttpClient) {
         }
     }
 
+    /**
+     * Registra la entrega completa con lo que se cobró. Efectivo o tarjeta se guardan como hoy
+     * (MetodoPago del pedido); el pago mixto espera la tabla PagoPedidosApp de la API.
+     */
+    suspend fun registerDelivery(id: Int, payment: DeliveryPayment, date: Int): Result<OrderResponse> =
+        when (payment.type) {
+            PaymentType.Cash -> registerPayment(id, OrderPaymentMethod.Cash, date)
+            PaymentType.Card -> registerPayment(id, OrderPaymentMethod.CardOrTransfer, date)
+            PaymentType.Mixed -> Result.failure(IllegalStateException(MIXED_PAYMENT_PENDING_MESSAGE))
+            PaymentType.Pending -> Result.failure(IllegalArgumentException("Escribe cuánto se cobró."))
+        }
+
     private fun validate(order: OrderRequest) {
         require(order.paymentMethod in 0..2) { "El método de pago no es válido." }
         require(order.date > 0) { "La fecha del pedido no es válida" }

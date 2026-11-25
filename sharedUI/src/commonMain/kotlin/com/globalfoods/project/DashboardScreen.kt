@@ -540,7 +540,7 @@ internal fun OrderCard(order: Order, onClick: () -> Unit, onRegisterPayment: (()
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Navy, contentColor = Color.White)
                     ) {
-                        Text("Registrar pago", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Registrar entrega", fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }

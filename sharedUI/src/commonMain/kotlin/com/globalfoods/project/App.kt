@@ -31,6 +31,11 @@ fun App() {
         var pedidoBase by remember { mutableStateOf<OrderResponse?>(null) }
         // Cliente abierto desde la pestaña Clientes (administrador/vendedor)
         var clienteSeleccionado by remember { mutableStateOf<AdminClient?>(null) }
+        // Pedido al que se le registra la entrega y pantalla a la que se regresa al terminar.
+        var pedidoEntrega by remember { mutableStateOf<Order?>(null) }
+        var origenEntrega by remember { mutableStateOf("Pedidos") }
+        // Aviso que muestra la lista de pedidos al regresar (por ejemplo, tras registrar la entrega).
+        var avisoPedidos by remember { mutableStateOf<String?>(null) }
         // Posición de las listas: se conserva al ir a un detalle y regresar; se reinicia al cerrar sesión.
         var sesion by remember { mutableStateOf(0) }
         val inicioListState = remember(sesion) { LazyListState() }
@@ -66,9 +71,16 @@ fun App() {
             pedidoEnEdicion = null
             pedidoBase = null
             clienteSeleccionado = null
+            pedidoEntrega = null
+            avisoPedidos = null
             pantallaLista = "Dashboard"
             sesion++
             pantallaActual = "Login"
+        }
+        val abrirEntrega: (Order, String) -> Unit = { order, origen ->
+            pedidoEntrega = order
+            origenEntrega = origen
+            pantallaActual = "RegistrarEntrega"
         }
         val abrirDetalle: (Order, String) -> Unit = { order, origen ->
             pedidoSeleccionado = order
@@ -170,7 +182,10 @@ fun App() {
                     onOrderSelected = { order -> abrirDetalle(order, "Pedidos") },
                     onTabSelected = abrirPestana,
                     listState = pedidosListState,
-                    cache = listas
+                    cache = listas,
+                    onRegisterDelivery = { order -> abrirEntrega(order, "Pedidos") },
+                    notice = avisoPedidos,
+                    onNoticeShown = { avisoPedidos = null }
                 )
             }
             "NuevoPedido" -> {
@@ -204,10 +219,36 @@ fun App() {
                         onEdit = { response ->
                             pedidoEnEdicion = response
                             pantallaActual = "EditarPedido"
-                        }
+                        },
+                        onRegisterDelivery = { abrirEntrega(it, "Detalles") }
                     )
                 } else {
                     pantallaActual = pantallaLista
+                }
+            }
+            "RegistrarEntrega" -> {
+                val order = pedidoEntrega
+
+                if (order != null) {
+                    RegisterDeliveryScreen(
+                        order = order,
+                        onBack = {
+                            pedidoEntrega = null
+                            pantallaActual = origenEntrega
+                        },
+                        onDelivered = { updated ->
+                            pedidoEntrega = null
+                            refreshDashboard++
+                            if (origenEntrega == "Detalles") {
+                                pedidoSeleccionado = toOrder(updated)
+                            } else {
+                                avisoPedidos = "Pedido entregado exitosamente"
+                            }
+                            pantallaActual = origenEntrega
+                        }
+                    )
+                } else {
+                    pantallaActual = origenEntrega
                 }
             }
             "EditarPedido" -> {
