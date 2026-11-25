@@ -36,7 +36,7 @@ fun App() {
         var origenEntrega by remember { mutableStateOf("Pedidos") }
         // Aviso que muestra la lista de pedidos al regresar (por ejemplo, tras registrar la entrega).
         var avisoPedidos by remember { mutableStateOf<String?>(null) }
-        // Se abre únicamente después de que la API confirma un pedido nuevo.
+        // Solo se ofrece a clientes después de que la API confirma un pedido nuevo.
         var mostrarAsistente by remember { mutableStateOf(false) }
         // Posición de las listas: se conserva al ir a un detalle y regresar; se reinicia al cerrar sesión.
         var sesion by remember { mutableStateOf(0) }
@@ -204,7 +204,7 @@ fun App() {
                         pedidoBase = null
                         refreshDashboard++
                         pantallaActual = "Dashboard"
-                        mostrarAsistente = true
+                        mostrarAsistente = sessionRol == UserRole.Client
                     },
                     onLogout = cerrarSesion
                 )
