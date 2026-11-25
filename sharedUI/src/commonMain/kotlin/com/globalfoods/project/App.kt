@@ -37,7 +37,7 @@ fun App() {
         // Aviso que muestra la lista de pedidos al regresar (por ejemplo, tras registrar la entrega).
         var avisoPedidos by remember { mutableStateOf<String?>(null) }
         // Se abre únicamente después de que la API confirma un pedido nuevo.
-        var pedidoAsistenteId by remember { mutableStateOf<Int?>(null) }
+        var mostrarAsistente by remember { mutableStateOf(false) }
         // Posición de las listas: se conserva al ir a un detalle y regresar; se reinicia al cerrar sesión.
         var sesion by remember { mutableStateOf(0) }
         val inicioListState = remember(sesion) { LazyListState() }
@@ -75,7 +75,7 @@ fun App() {
             clienteSeleccionado = null
             pedidoEntrega = null
             avisoPedidos = null
-            pedidoAsistenteId = null
+            mostrarAsistente = false
             pantallaLista = "Dashboard"
             sesion++
             pantallaActual = "Login"
@@ -99,8 +99,8 @@ fun App() {
             "DetalleCliente" -> { { pantallaActual = "Clientes" } }
             else -> null
         }
-        PlatformBackHandler(enabled = pedidoAsistenteId != null || atras != null) {
-            if (pedidoAsistenteId == null) atras?.invoke()
+        PlatformBackHandler(enabled = mostrarAsistente || atras != null) {
+            if (!mostrarAsistente) atras?.invoke()
         }
 
         when (pantallaActual) {
@@ -200,11 +200,11 @@ fun App() {
                         pedidoBase = null
                         pantallaActual = "Dashboard"
                     },
-                    onOrderCreated = { created ->
+                    onOrderCreated = {
                         pedidoBase = null
                         refreshDashboard++
                         pantallaActual = "Dashboard"
-                        pedidoAsistenteId = created.id
+                        mostrarAsistente = true
                     },
                     onLogout = cerrarSesion
                 )
@@ -282,8 +282,8 @@ fun App() {
             }
         }
 
-        pedidoAsistenteId?.let { id ->
-            OrderCreatedAssistantDialog(orderId = id, onFinished = { pedidoAsistenteId = null })
+        if (mostrarAsistente) {
+            OrderCreatedAssistantDialog(onFinished = { mostrarAsistente = false })
         }
     }
 }
