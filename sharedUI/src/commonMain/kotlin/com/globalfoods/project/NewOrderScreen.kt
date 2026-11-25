@@ -245,7 +245,7 @@ private fun formatQuantity(value: Double): String =
 fun NewOrderScreen(
     onBack: () -> Unit,
     onLogout: () -> Unit,
-    onOrderCreated: () -> Unit = {},
+    onOrderCreated: (OrderResponse) -> Unit = {},
     orderToEdit: OrderResponse? = null,
     onOrderUpdated: (OrderResponse?) -> Unit = {},
     /** Pedido anterior para "Repetir último pedido": precarga productos y entrega, pero se registra como nuevo. */
@@ -529,7 +529,7 @@ fun NewOrderScreen(
                             )
                         } else {
                             orderRepository.createOrder(request).fold(
-                                onSuccess = { isSaving = false; onOrderCreated() },
+                                onSuccess = { created -> isSaving = false; onOrderCreated(created) },
                                 onFailure = { isSaving = false; saveError = it.message }
                             )
                         }

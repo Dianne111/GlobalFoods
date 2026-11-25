@@ -9,10 +9,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 
 @Composable
-internal actual fun rememberTelegramAssistantLauncher(): () -> Boolean {
+internal actual fun rememberTelegramAssistantLauncher(orderId: Int?): () -> Boolean {
     val context = LocalContext.current
-    return remember(context) {
-        { TelegramAssistant.open { uri -> openAssistantUri(context, uri) } }
+    return remember(context, orderId) {
+        { TelegramAssistant.open(orderId) { uri -> openAssistantUri(context, uri) } }
     }
 }
 

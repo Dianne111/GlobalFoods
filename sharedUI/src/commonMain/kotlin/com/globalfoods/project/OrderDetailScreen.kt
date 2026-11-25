@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Chat
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +59,7 @@ fun OrderDetailScreen(
 ) {
     val repository = remember { OrderRepository() }
     val openAddress = rememberAddressLauncher()
+    var assistantError by remember(order.id) { mutableStateOf<String?>(null) }
     var mapError by remember(order.id) { mutableStateOf<String?>(null) }
     var showCancelDialog by remember { mutableStateOf(false) }
     var isCancelling by remember { mutableStateOf(false) }
@@ -66,6 +68,8 @@ fun OrderDetailScreen(
     /** "Pedido #22 cancelado." al terminar la cancelación. */
     var cancelledNotice by remember { mutableStateOf<String?>(null) }
     var response by remember(order.id) { mutableStateOf(order.response) }
+    val assistantOrderId = response?.id ?: order.id
+    val openAssistant = rememberTelegramAssistantLauncher(assistantOrderId)
     var linkedClient by remember(order.id) { mutableStateOf<Client?>(null) }
     var linkedBranch by remember(order.id) { mutableStateOf<Branch?>(null) }
     var isLoading by remember(order.id) { mutableStateOf(false) }
@@ -316,6 +320,23 @@ fun OrderDetailScreen(
                             OrderDetailField("Referencias", it)
                         }
                         OrderDetailField("Observaciones", observations.notes, "Sin observaciones")
+                        OutlinedButton(
+                            onClick = {
+                                assistantError = null
+                                if (!openAssistant()) assistantError = TelegramAssistant.openError
+                            },
+                            enabled = !isLoading && assistantOrderId > 0,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Navy)
+                        ) {
+                            Icon(Icons.Outlined.Chat, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Consultar pedido en Telegram", fontWeight = FontWeight.Bold)
+                        }
+                        assistantError?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                        }
                     }
                 }
             }

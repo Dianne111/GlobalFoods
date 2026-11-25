@@ -33,17 +33,23 @@ internal object TelegramAssistant {
     private const val nativeUrl = "tg://resolve?domain=GlobalFoodsMexicobot"
     const val openError = "No se pudo abrir Telegram ni el navegador. Inténtalo de nuevo."
 
-    // Abre el chat en Telegram; si no está instalado, usa el enlace web del mismo bot.
-    fun open(openUri: (String) -> Boolean): Boolean = openUri(nativeUrl) || openUri(webUrl)
+    // Contrato propuesto al bot: /start pedido_<ID>. El bot valida el acceso y consulta la API.
+    fun open(orderId: Int? = null, openUri: (String) -> Boolean): Boolean {
+        if (orderId != null && orderId <= 0) return false
+        val parameter = orderId?.let { "pedido_$it" }
+        val native = if (parameter == null) nativeUrl else "$nativeUrl&start=$parameter"
+        val web = if (parameter == null) webUrl else "$webUrl?start=$parameter"
+        return openUri(native) || openUri(web)
+    }
 }
 
 @Composable
-internal expect fun rememberTelegramAssistantLauncher(): () -> Boolean
+internal expect fun rememberTelegramAssistantLauncher(orderId: Int? = null): () -> Boolean
 
 /** Pregunta obligatoria después de un POST exitoso; el pedido ya está guardado. */
 @Composable
-internal fun OrderCreatedAssistantDialog(onFinished: () -> Unit) {
-    val openAssistant = rememberTelegramAssistantLauncher()
+internal fun OrderCreatedAssistantDialog(orderId: Int, onFinished: () -> Unit) {
+    val openAssistant = rememberTelegramAssistantLauncher(orderId)
     var error by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
@@ -78,12 +84,9 @@ internal fun OrderCreatedAssistantDialog(onFinished: () -> Unit) {
     )
 }
 
-/** Mismo acceso al asistente en todos los menús de engranaje de la app. */
+/** Menú de configuración compartido por los encabezados de la app. */
 @Composable
 internal fun AppSettingsDialog(onDismissRequest: () -> Unit, onLogout: () -> Unit) {
-    val openAssistant = rememberTelegramAssistantLauncher()
-    var error by remember { mutableStateOf<String?>(null) }
-
     AlertDialog(
         onDismissRequest = onDismissRequest,
         shape = RoundedCornerShape(24.dp),
@@ -91,24 +94,12 @@ internal fun AppSettingsDialog(onDismissRequest: () -> Unit, onLogout: () -> Uni
         title = { Text("Configuración", color = Navy, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(
-                    onClick = {
-                        if (openAssistant()) onDismissRequest() else error = TelegramAssistant.openError
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Outlined.Chat, contentDescription = null, tint = Navy)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Asistente de Telegram", color = Navy)
-                    Spacer(Modifier.weight(1f))
-                }
                 TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.Logout, contentDescription = null, tint = Navy)
                     Spacer(Modifier.width(8.dp))
                     Text("Cerrar sesión", color = Navy)
                     Spacer(Modifier.weight(1f))
                 }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
             }
         },
         confirmButton = {}
