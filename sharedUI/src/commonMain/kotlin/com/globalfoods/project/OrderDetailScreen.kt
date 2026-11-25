@@ -52,7 +52,9 @@ fun OrderDetailScreen(
     onNavigateBack: () -> Unit,
     /** El pedido se canceló (Estatus 5); se queda en el detalle y se refrescan las listas. */
     onCancelled: () -> Unit,
-    onEdit: (OrderResponse) -> Unit = {}
+    onEdit: (OrderResponse) -> Unit = {},
+    /** Abre Registrar entrega con la información más reciente del pedido. */
+    onRegisterDelivery: (Order) -> Unit = {}
 ) {
     val repository = remember { OrderRepository() }
     val openAddress = rememberAddressLauncher()
@@ -363,6 +365,16 @@ fun OrderDetailScreen(
                         )
                     }
                 }
+            }
+
+            // Vendedor o administrador, con el pedido En reparto: registra la entrega y el pago.
+            if (sessionRol.canRegisterPayment && response?.orderStatus?.acceptsPayment == true) item {
+                Button(
+                    onClick = { onRegisterDelivery(summary.copy(client = clientName)) },
+                    enabled = !isLoading && !isCancelling,
+                    colors = ButtonDefaults.buttonColors(containerColor = Navy),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("Registrar entrega", fontWeight = FontWeight.Bold) }
             }
 
             // El cliente solo consulta: no ve Editar ni Cancelar.

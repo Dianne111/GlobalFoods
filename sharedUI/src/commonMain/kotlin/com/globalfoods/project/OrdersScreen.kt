@@ -100,7 +100,12 @@ fun OrdersScreen(
     /** Lo guarda App para conservar la posición al volver del detalle de un pedido. */
     listState: LazyListState = rememberLazyListState(),
     /** Últimos pedidos cargados: se muestran al volver mientras se actualizan. */
-    cache: ListsCache = remember { ListsCache() }
+    cache: ListsCache = remember { ListsCache() },
+    /** Abre la pantalla Registrar entrega del pedido. */
+    onRegisterDelivery: (Order) -> Unit = {},
+    /** Aviso pendiente (por ejemplo, "Pedido entregado exitosamente") que se muestra al llegar. */
+    notice: String? = null,
+    onNoticeShown: () -> Unit = {}
 ) {
     val orderRepository = remember { OrderRepository() }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -112,7 +117,13 @@ fun OrdersScreen(
     // Se conservan al ir al detalle y regresar.
     var view by rememberSaveable { mutableStateOf(OrdersView.Active) }
     var query by rememberSaveable { mutableStateOf("") }
-    var paymentOrder by remember { mutableStateOf<Order?>(null) }
+
+    LaunchedEffect(notice) {
+        if (notice != null) {
+            onNoticeShown()
+            snackbarHostState.showSnackbar(message = notice, duration = SnackbarDuration.Short)
+        }
+    }
 
     LaunchedEffect(refreshKey, reloadKey) {
         isLoading = true
@@ -193,7 +204,7 @@ fun OrdersScreen(
                                 order = order,
                                 onClick = { onOrderSelected(order) },
                                 onRegisterPayment = if (sessionRol.canRegisterPayment && order.response?.orderStatus?.acceptsPayment == true) {
-                                    { paymentOrder = order }
+                                    { onRegisterDelivery(order) }
                                 } else null
                             )
                         }
@@ -202,27 +213,6 @@ fun OrdersScreen(
                 }
             }
         }
-    }
-
-    paymentOrder?.let { order ->
-        RegisterPaymentDialog(
-            order = order,
-            onDismissRequest = { paymentOrder = null },
-            onConfirmed = { updated ->
-                val clients = orders.mapNotNull { it.response?.client }.associateBy { it.id }
-                orders = sortOrders(orders.map { if (it.id == updated.id) toOrder(updated, clients) else it })
-                paymentOrder = null
-                reloadKey++
-                if (updated.orderStatus == OrderStatus.Delivered) {
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            message = "Pedido entregado exitosamente",
-                            duration = SnackbarDuration.Short
-                        )
-                    }
-                }
-            }
-        )
     }
 }
 
