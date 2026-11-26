@@ -4,29 +4,40 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Business
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -47,6 +58,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.globalfoods.project.sharedlogic.network.core.sessionIdCliente
+import com.globalfoods.project.sharedlogic.network.core.sessionNombreUsuario
+import com.globalfoods.project.sharedlogic.network.core.sessionTelefono // <--- Importamos el teléfono de sesión
 import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.BranchRequest
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
@@ -67,13 +80,35 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
     var isLoading by remember { mutableStateOf(clientId != null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
-    // null = cerrado; Branch con Id 0 = sucursal nueva.
+
+    val rawName = try { sessionNombreUsuario.toString() } catch (e: Exception) { "" }
+    val realUserName = if (rawName.isBlank() || rawName == "null") "Victoria Adahi" else rawName
+
+    // --- TELÉFONO OBTENIDO DE LA SESIÓN DE LA API ---
+    val rawPhone = try { sessionTelefono.toString() } catch (e: Exception) { "" }
+    val initialPhone = if (rawPhone.isBlank() || rawPhone == "null") "No registrado" else rawPhone
+    var userPhone by remember { mutableStateOf(initialPhone) }
+
+    var telegramUser by remember { mutableStateOf("") }
+
+    // Estados para controlar los diálogos de edición
     var editing by remember { mutableStateOf<Branch?>(null) }
+    var isEditingPhone by remember { mutableStateOf(false) }
     var toDeactivate by remember { mutableStateOf<Branch?>(null) }
     var isSaving by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
-    /** Mensaje del aviso cuando la sucursal tiene pedidos pendientes y no se puede dar de baja. */
     var blockedMessage by remember { mutableStateOf<String?>(null) }
+
+    val initials = if (realUserName.isNotBlank()) {
+        realUserName.split(" ")
+            .filter { it.isNotBlank() }
+            .mapNotNull { it.firstOrNull()?.toString() }
+            .take(2)
+            .joinToString("")
+            .uppercase()
+    } else {
+        "VA"
+    }
 
     LaunchedEffect(clientId, reloadKey) {
         if (clientId == null) return@LaunchedEffect
@@ -92,6 +127,7 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
             action().fold(
                 onSuccess = {
                     editing = null
+                    isEditingPhone = false
                     toDeactivate = null
                     reloadKey++
                 },
@@ -104,7 +140,7 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
     Scaffold(
         containerColor = Background,
         topBar = {
-            ScreenHeader(eyebrow = "MI CUENTA", title = "SUCURSALES") {
+            ScreenHeader(eyebrow = "MI CUENTA", title = "MI PERFIL") {
                 HeaderIconAction(Icons.Outlined.Refresh, "Actualizar sucursales", enabled = !isLoading) { reloadKey++ }
             }
         },
@@ -117,23 +153,131 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
                     .widthIn(max = 520.dp)
                     .align(Alignment.TopCenter)
                     .padding(horizontal = DashboardHorizontalPadding),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                item { Spacer(Modifier.height(4.dp)) }
+                item { Spacer(Modifier.height(8.dp)) }
+
+                // --- SECCIÓN: ENCABEZADO DE PERFIL ---
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(76.dp)
+                                .background(Color(0xFF00838F), shape = CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = initials,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = realUserName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Navy
+                        )
+
+                        Text(
+                            text = "Cliente",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF00C853),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // --- SECCIÓN: MIS DATOS ---
+                item {
+                    Column {
+                        Text(
+                            text = "MIS DATOS",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Navy
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                DataFieldItem(label = "Nombre", value = realUserName, showEdit = false)
+                                DataFieldItem(
+                                    label = "Teléfono",
+                                    value = userPhone,
+                                    showEdit = true,
+                                    onEditClick = { isEditingPhone = true }
+                                )
+                                DataFieldItem(
+                                    label = "Usuario Telegram",
+                                    value = telegramUser.ifEmpty { "--------" },
+                                    showEdit = true,
+                                    onEditClick = {}
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // --- SECCIÓN: MIS SUCURSALES ---
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "MIS SUCURSALES",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Navy
+                        )
+
+                        if (clientId != null) {
+                            Button(
+                                onClick = { editing = Branch(id = 0, clientId = clientId, name = "") },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853)),
+                                shape = RoundedCornerShape(50),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Agregar",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(text = "Agregar", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+
                 if (clientId == null) {
                     item {
                         Notice(
                             "Tu usuario aún no está vinculado a un cliente. " +
-                                "Comunícate con tu asesor de ventas para administrar tus sucursales."
+                                    "Comunícate con tu asesor de ventas para administrar tus sucursales."
                         )
                     }
-                } else {
-                    item {
-                        PrimaryAction("+  Agregar sucursal") {
-                            editing = Branch(id = 0, clientId = clientId, name = "")
-                        }
-                    }
                 }
+
                 loadError?.let { message ->
                     item {
                         Column {
@@ -142,9 +286,10 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
                         }
                     }
                 }
+
                 when {
                     isLoading && branches.isEmpty() -> item {
-                        Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(color = Green)
                         }
                     }
@@ -154,7 +299,7 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
                             color = Gray,
                             fontSize = 13.sp,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp)
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp)
                         )
                     }
                     else -> items(branches, key = { it.id }) { branch ->
@@ -166,9 +311,47 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
                         )
                     }
                 }
-                item { Spacer(Modifier.height(12.dp)) }
+
+                // --- BOTÓN DE CERRAR SESIÓN ---
+                item {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { /* Lógica de cerrar sesión */ },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ExitToApp,
+                            contentDescription = "Cerrar sesión",
+                            tint = Color(0xFFFF5252)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Cerrar sesión", fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
             }
         }
+    }
+
+    // --- DIÁLOGO PARA EDITAR TELÉFONO ---
+    if (isEditingPhone) {
+        PhoneEditDialog(
+            currentPhone = userPhone,
+            saving = isSaving,
+            onDismiss = { if (!isSaving) isEditingPhone = false },
+            onSave = { newPhone ->
+                isSaving = true
+                scope.launch {
+                    userPhone = newPhone
+                    // Opcional: si tienes un método en tu repositorio para actualizar el teléfono en backend,
+                    // puedes llamarlo aquí.
+                    isEditingPhone = false
+                    isSaving = false
+                }
+            }
+        )
     }
 
     editing?.let { branch ->
@@ -233,23 +416,118 @@ fun BranchesScreen(onTabSelected: (MainTab) -> Unit) {
     }
 }
 
+// --- COMPONENTE DE DIÁLOGO PARA EDITAR EL TELÉFONO ---
+@Composable
+internal fun PhoneEditDialog(
+    currentPhone: String,
+    saving: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var phone by remember { mutableStateOf(currentPhone) }
+    val valid = phone.isNotBlank()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Editar teléfono", color = Navy, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { value -> phone = value.filter { it.isDigit() || it in " +-()" }.take(20) },
+                    label = { Text("Número de teléfono") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(phone) }, enabled = valid && !saving) {
+                Text(if (saving) "Guardando…" else "Guardar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !saving) {
+                Text("Cancelar")
+            }
+        }
+    )
+}
+
+@Composable
+internal fun DataFieldItem(
+    label: String,
+    value: String,
+    showEdit: Boolean,
+    onEditClick: () -> Unit = {}
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = label, style = MaterialTheme.typography.bodySmall, color = Gray)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(text = value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Navy)
+        }
+
+        if (showEdit) {
+            OutlinedButton(
+                onClick = onEditClick,
+                shape = RoundedCornerShape(50),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFFE8F5E9))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Editar",
+                    tint = Color(0xFF00C853),
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(text = "Editar", color = Color(0xFF00C853), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
 @Composable
 internal fun BranchCard(
     branch: Branch,
     onEdit: () -> Unit,
     onDeactivate: () -> Unit,
     onReactivate: () -> Unit,
-    /** false para quien solo consulta (vendedor): sin editar, dar de baja ni reactivar. */
     editable: Boolean = true
 ) {
     val active = branch.status == 1
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(Modifier.padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(Color(0xFFE0F2F1), shape = RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Business,
+                    contentDescription = null,
+                    tint = Color(0xFF00796B),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(branch.name, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f, fill = false))
@@ -272,16 +550,18 @@ internal fun BranchCard(
                     Text("Tel. ${branch.phone}", color = Gray, fontSize = 12.sp)
                 }
             }
-            // Quien solo consulta (vendedor) no ve editar, dar de baja ni reactivar.
+
             if (editable) {
-                IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, "Editar sucursal", tint = Gray) }
-                if (active) {
-                    IconButton(onClick = onDeactivate) {
-                        Icon(Icons.Outlined.Delete, "Dar de baja la sucursal", tint = Color(0xFFB91C1C))
-                    }
-                } else {
-                    IconButton(onClick = onReactivate) {
-                        Icon(Icons.Outlined.Restore, "Reactivar sucursal", tint = Green)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, "Editar sucursal", tint = Gray) }
+                    if (active) {
+                        IconButton(onClick = onDeactivate) {
+                            Icon(Icons.Outlined.Delete, "Dar de baja la sucursal", tint = Color(0xFFB91C1C))
+                        }
+                    } else {
+                        IconButton(onClick = onReactivate) {
+                            Icon(Icons.Outlined.Restore, "Reactivar sucursal", tint = Green)
+                        }
                     }
                 }
             }
@@ -333,7 +613,6 @@ internal fun BranchDialog(
     )
 }
 
-/** Confirmación de la baja lógica de una sucursal (se conserva y se puede reactivar). */
 @Composable
 internal fun BranchDeactivateDialog(
     branch: Branch,
@@ -347,7 +626,7 @@ internal fun BranchDeactivateDialog(
         text = {
             Text(
                 "\"${branch.name}\" ya no podrá elegirse en pedidos nuevos. " +
-                    "Los pedidos anteriores se conservan y podrás reactivarla cuando quieras."
+                        "Los pedidos anteriores se conservan y podrás reactivarla cuando quieras."
             )
         },
         confirmButton = {

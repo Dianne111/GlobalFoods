@@ -13,6 +13,7 @@ data class LoginResponse(
     val tokenType: String? = null,
     val accessToken: String,
     val expiresIn: Int? = null,
+    val telefono: String? = null,
     val nombre: String,
     /** Rol del usuario: Administrador, Vendedor (o Empleado) o Cliente. */
     val tipoUsuario: String? = null,

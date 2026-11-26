@@ -6,6 +6,7 @@ import com.globalfoods.project.sharedlogic.network.core.sessionNombreUsuario
 import com.globalfoods.project.sharedlogic.network.core.sessionIdCliente
 import com.globalfoods.project.sharedlogic.network.core.sessionRol
 import com.globalfoods.project.sharedlogic.network.core.sessionToken
+import com.globalfoods.project.sharedlogic.network.core.sessionTelefono
 import io.ktor.client.call.body
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -32,6 +33,7 @@ class AuthRepository {
                 sessionNombreUsuario = loginResponse.nombre
                 sessionRol = rol
                 sessionIdCliente = loginResponse.idCliente
+                sessionTelefono = loginResponse.telefono
 
                 Result.success(loginResponse)
             } else {
@@ -58,6 +60,7 @@ class AuthRepository {
         sessionNombreUsuario = null
         sessionRol = UserRole.Client
         sessionIdCliente = null
+        sessionTelefono = null
     }
 
     fun haySesion(): Boolean = sessionToken != null
