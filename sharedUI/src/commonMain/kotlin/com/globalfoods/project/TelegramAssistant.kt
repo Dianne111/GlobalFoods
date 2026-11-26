@@ -2,12 +2,12 @@ package com.globalfoods.project
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Chat
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -21,9 +21,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
@@ -51,31 +53,55 @@ internal fun OrderCreatedAssistantDialog(onFinished: () -> Unit) {
     AlertDialog(
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(28.dp),
         containerColor = Background,
-        icon = { Icon(Icons.Outlined.Chat, contentDescription = null, tint = Navy) },
-        title = { Text("Pedido registrado", color = Navy, fontWeight = FontWeight.Bold) },
+        icon = { Text("🤖", fontSize = 48.sp) },
+        title = {
+            Text(
+                "¡Pedido registrado!",
+                modifier = Modifier.fillMaxWidth(),
+                color = Navy,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
-                    "¿Quieres comunicarte con nuestro asistente para recibir información de tu pedido?",
+                    "¿Te ayudo a conocer el estado de tu pedido?",
                     color = Navy,
-                    fontSize = 16.sp
+                    fontSize = 16.sp,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    "Habla con nuestro asistente en Telegram.",
+                    color = Navy,
+                    fontSize = 15.sp,
+                    textAlign = TextAlign.Center
                 )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    if (openAssistant()) onFinished() else error = TelegramAssistant.openError
-                },
-                shape = RoundedCornerShape(24.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Navy, contentColor = Color.White)
-            ) { Text("Sí") }
-        },
-        dismissButton = {
-            TextButton(onClick = onFinished) { Text("No", color = Navy) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onFinished) { Text("No", color = Navy) }
+                Spacer(Modifier.width(14.dp))
+                Button(
+                    onClick = {
+                        if (openAssistant()) onFinished() else error = TelegramAssistant.openError
+                    },
+                    shape = RoundedCornerShape(24.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Navy, contentColor = Color.White)
+                ) { Text("Sí") }
+            }
         }
     )
 }

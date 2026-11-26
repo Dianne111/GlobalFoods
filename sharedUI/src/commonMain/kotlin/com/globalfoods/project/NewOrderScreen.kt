@@ -464,7 +464,7 @@ fun NewOrderScreen(
                 onFormChange = { form = it },
                 onEdit = { step = NewOrderStep.Details },
                 onProducts = { step = if (isClient) NewOrderStep.Catalog else NewOrderStep.Details },
-                submitLabel = if (isEditing) "Guardar cambios" else "Registrar pedido pendiente",
+                submitLabel = if (isEditing) "Guardar cambios" else "Registrar Nuevo Pedido",
                 onSubmit = {
                     if ((form.clientId ?: 0) <= 0) {
                         saveError = SELECT_CLIENT_MESSAGE
