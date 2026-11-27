@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
@@ -24,6 +25,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.globalfoods.project.sharedlogic.network.auth.UserRole
 import com.globalfoods.project.sharedlogic.network.orders.Branch
 import com.globalfoods.project.sharedlogic.network.orders.Client
 import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
@@ -58,6 +60,8 @@ fun OrderDetailScreen(
 ) {
     val repository = remember { OrderRepository() }
     val openAddress = rememberAddressLauncher()
+    val openAssistant = rememberTelegramAssistantLauncher()
+    var assistantError by remember(order.id) { mutableStateOf<String?>(null) }
     var mapError by remember(order.id) { mutableStateOf<String?>(null) }
     var showCancelDialog by remember { mutableStateOf(false) }
     var isCancelling by remember { mutableStateOf(false) }
@@ -316,6 +320,25 @@ fun OrderDetailScreen(
                             OrderDetailField("Referencias", it)
                         }
                         OrderDetailField("Observaciones", observations.notes, "Sin observaciones")
+                        if (sessionRol == UserRole.Client) {
+                            OutlinedButton(
+                                onClick = {
+                                    assistantError = null
+                                    if (!openAssistant()) assistantError = TelegramAssistant.openError
+                                },
+                                enabled = !isCancelling && (response?.id ?: order.id) > 0,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Navy)
+                            ) {
+                                Icon(Icons.AutoMirrored.Outlined.Chat, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Consultar estado en Telegram", fontWeight = FontWeight.Bold)
+                            }
+                            assistantError?.let {
+                                Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                            }
+                        }
                     }
                 }
             }
