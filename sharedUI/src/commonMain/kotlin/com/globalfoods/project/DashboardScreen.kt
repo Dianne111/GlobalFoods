@@ -10,7 +10,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -27,6 +29,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -48,6 +51,8 @@ import com.globalfoods.project.sharedlogic.network.orders.OrderObservations
 import com.globalfoods.project.sharedlogic.network.orders.OrderRepository
 import com.globalfoods.project.sharedlogic.network.orders.paymentMethodLabel
 import com.globalfoods.project.sharedlogic.network.orders.OrderResponse
+import com.globalfoods.project.sharedlogic.network.cortes.CorteRepository
+import com.globalfoods.project.sharedlogic.network.cortes.OrdenCorte
 
 internal val Navy = Color(0xFF143D58)
 internal val Background = Color(0xFFF1F8FA)
@@ -75,6 +80,8 @@ fun DashboardScreen(
 
     val dashboardRepository = remember { DashboardRepository() }
     val orderRepository = remember { OrderRepository() }
+    val corteRepository = remember { CorteRepository() }
+    val scope = rememberCoroutineScope()
 
     var inventarioList by remember { mutableStateOf(cache.inventory.orEmpty()) }
     var isLoadingInventario by remember { mutableStateOf(cache.inventory == null) }
@@ -85,6 +92,14 @@ fun DashboardScreen(
     // Deslizar hacia abajo vuelve a consultar el inventario y los pedidos.
     var pullKey by remember { mutableStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
+
+    // Estados para el módulo de cortes
+    var cortePendiente by remember { mutableStateOf<OrdenCorte?>(null) }
+    var mostrarAvisoCorte by remember { mutableStateOf(false) }
+    var mostrarInputCodigo by remember { mutableStateOf(false) }
+    var codigoIngresado by remember { mutableStateOf("") }
+    var errorCodigo by remember { mutableStateOf<String?>(null) }
+    var isValidadorCorte by remember { mutableStateOf(false) }
 
     LaunchedEffect(refreshKey, pullKey) {
         val resultado = dashboardRepository.obtenerInventario()
@@ -106,6 +121,18 @@ fun DashboardScreen(
         refreshing = false
     }
 
+    // Consultar si hay orden de corte pendiente si el usuario es Empleado
+    LaunchedEffect(refreshKey, pullKey) {
+        if (sessionRol == UserRole.Seller) {
+            corteRepository.getCortePendiente().onSuccess { orden ->
+                cortePendiente = orden
+                if (orden != null && orden.estatus == "Pendiente") {
+                    mostrarAvisoCorte = true
+                }
+            }
+        }
+    }
+
     Scaffold(
         containerColor = Background,
         topBar = { DashboardHeader(onLogout) },
@@ -116,6 +143,44 @@ fun DashboardScreen(
                 .fillMaxSize()
                 .padding(insets)
         ) {
+            // --- BANNER PERSISTENTE SUPERIOR PARA CORTE PENDIENTE ---
+            cortePendiente?.let { corte ->
+                if (!mostrarAvisoCorte && !mostrarInputCodigo) {
+                    Surface(
+                        color = Color(0xFFFEF3C7),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ErrorOutline,
+                                contentDescription = null,
+                                tint = Color(0xFFD97706),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Tienes un corte pendiente",
+                                color = Color(0xFF92400E),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = { mostrarInputCodigo = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF006699)),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Agregar código", color = Color.White, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
             // El botón queda fijo arriba; el inventario y los pedidos se desplazan debajo.
             PinnedTop(listState) {
                 NewOrderButton(onClick = onNewOrder)
@@ -196,6 +261,149 @@ fun DashboardScreen(
 
         }
     }
+
+    // ==========================================
+    // --- DIÁLOGOS FLOTANTES DE CORTE ---
+    // ==========================================
+
+    if (mostrarAvisoCorte && cortePendiente != null) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = Modifier.size(48.dp).background(Color(0xFFFEF3C7), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.AccountBalanceWallet, contentDescription = null, tint = Color(0xFFD97706))
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text("Tienes un corte pendiente por pagar", fontWeight = FontWeight.Bold, color = Navy, textAlign = TextAlign.Center)
+                }
+            },
+            text = {
+                Text(
+                    "El administrador solicitó un corte. Ingresa el código para realizarlo.",
+                    textAlign = TextAlign.Center,
+                    color = Gray
+                )
+            },
+            confirmButton = {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            mostrarAvisoCorte = false
+                            mostrarInputCodigo = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Navy),
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Agregar código", fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = { mostrarAvisoCorte = false },
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Realizar más tarde", color = Gray)
+                    }
+                }
+            }
+        )
+    }
+
+    if (mostrarInputCodigo && cortePendiente != null) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = Modifier.size(48.dp).background(Color(0xFFE0F2FE), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.VpnKey, contentDescription = null, tint = Color(0xFF0284C7))
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text("Ingresa el código del corte", fontWeight = FontWeight.Bold, color = Navy, textAlign = TextAlign.Center)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Escribe el código que te proporcionó el administrador.", fontSize = 12.sp, color = Gray, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = codigoIngresado,
+                        onValueChange = {
+                            if (it.length <= 4) codigoIngresado = it.filter(Char::isDigit)
+                            errorCodigo = null
+                        },
+                        label = { Text("Código del corte") },
+                        placeholder = { Text("Ingresa el código") },
+                        singleLine = true,
+                        isError = errorCodigo != null,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    if (errorCodigo != null) {
+                        Text(
+                            text = errorCodigo!!,
+                            color = Color(0xFFB91C1C),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val id = cortePendiente?.id ?: return@Button
+                            isValidadorCorte = true
+                            scope.launch {
+                                corteRepository.confirmarCorte(id, codigoIngresado).fold(
+                                    onSuccess = {
+                                        isValidadorCorte = false
+                                        mostrarInputCodigo = false
+                                        cortePendiente = null
+                                        codigoIngresado = ""
+                                    },
+                                    onFailure = { err ->
+                                        isValidadorCorte = false
+                                        errorCodigo = err.message ?: "Código incorrecto. Verifica e intenta de nuevo."
+                                    }
+                                )
+                            }
+                        },
+                        enabled = codigoIngresado.length == 4 && !isValidadorCorte,
+                        colors = ButtonDefaults.buttonColors(containerColor = Navy),
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (isValidadorCorte) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                        } else {
+                            Text("Validar código", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            mostrarInputCodigo = false
+                            codigoIngresado = ""
+                            errorCodigo = null
+                        },
+                        enabled = !isValidadorCorte,
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Cancelar", color = Gray)
+                    }
+                }
+            }
+        )
+    }
 }
 
 /**
@@ -225,7 +433,7 @@ internal suspend fun loadOrders(
             onOrders(response.map { toOrder(it) })
             val needsClients = response.any {
                 it.clientId != null && it.client?.name.isNullOrBlank() &&
-                    OrderObservations.decode(it.notes).delivery?.clientName.isNullOrBlank()
+                        OrderObservations.decode(it.notes).delivery?.clientName.isNullOrBlank()
             }
             var clientsById = emptyMap<Int, Client>()
             if (needsClients) {
